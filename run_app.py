@@ -1,4 +1,4 @@
-from folding_practical.app import main
+from folding_practical.bootstrap import main
 
 if __name__ == "__main__":
     main()
