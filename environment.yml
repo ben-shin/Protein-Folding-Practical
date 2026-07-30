@@ -1,0 +1,11 @@
+name: proteinfoldingpractical
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - numpy=1.26.4
+  - pandas=2.2.3
+  - scipy=1.13.1
+  - matplotlib=3.8.4
+  - tk=8.6
+  - pip
