@@ -87,6 +87,8 @@ A logistic curve alone does NOT provide thermodynamic folding free energies. The
 Python 3.9 or newer is recommended.
 
 ```bash
+git clone https://github.com/ben-shin/Protein-Folding-Practical.git
+cd Protein-Folding-Practical
 python3.9 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
