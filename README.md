@@ -42,16 +42,16 @@ The number and pattern of conditions have not been hardcoded. 12-16 conditions w
 ### 3. Export clean group files
 
 Each group is exported as '<group_name>.csv' with exactly these columns:
-'''text
+```text
 GuHCl concentration (M)
 raw fluorescence values
 normalized fluorescence values
-'''
+```
 
 Normalization is within group min-max scaling:
-'''text
+```text
 (value-min)/(max-min)
-'''
+```
 
 The raw imported table and the group assignment mapping can also be saved.
 
@@ -66,9 +66,10 @@ Available models:
 4. Fit both
 
 The thermodynamics model uses:
-'''text
+```text
 ΔG_unfold([D]) = ΔG°H2O - m[D]
 Cm = ΔG°H2O / m
+```
 
 and reports:
 1. ΔG°unfolding,H2O in kJ/mol and the corresponding ΔG°folding,H2O = -ΔG°unfolding,H2O
@@ -85,20 +86,20 @@ A logistic curve alone does NOT provide thermodynamic folding free energies. The
 
 Python 3.10 or newer is recommended.
 
-'''bash
+```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
-'''
+```
 
 Run the application with either
-'''bash
+```bash
 protein-folding-practical
-'''
+```
 or
-'''bash
+```bash
 python run_app.py
-'''
+```
 
 ## Practical workflow
 
