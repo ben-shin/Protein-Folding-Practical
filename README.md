@@ -84,7 +84,7 @@ A logistic curve alone does NOT provide thermodynamic folding free energies. The
 
 ## Installation
 
-Python 3.10 or newer is recommended.
+Python 3.9 or newer is recommended.
 
 ```bash
 python -m venv .venv
