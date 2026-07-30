@@ -1,4 +1,4 @@
-""import clariostar and generic 96 well csv exports into a table. might need a bit of tinkering depending on the format."""
+"""Import CLARIOstar and generic 96-well CSV exports into a tidy table."""
 
 from __future__ import annotations
 
@@ -147,258 +147,262 @@ def _parse_clariostar_emission_spectrum(
     source_file: str,
     plate_id: str,
 ) -> Optional[pd.DataFrame]:
-  """parse clariostart repeated 8x12 emission spectrum blocks.
-  a clariostar spectrum export contains one complete plate grid per emission
-  wavelength
-  """
+    """Parse CLARIOstar repeated 8x12 emission-spectrum blocks.
 
-  records: list[dict[str, object]] = []
-  for header_index in range(len(raw)):
-      header_text = " ".join(str(value).strip() for value in raw.iloc[header_index] if str(value).strip())
-      match = _SPECTRUM_HEADER_RE.search(header_text)
-      if not match:
-          continue
+    A CLARIOstar spectrum export contains one complete plate grid per emission
+    wavelength, for example ``Raw Data (Em Spectrum) 472-16 / 500-10``.
+    The first number is the excitation wavelength and the second is the
+    emission wavelength. Keeping wavelength as its own numeric column avoids
+    silently collapsing the file to the final grid.
+    """
 
-      excitation = float(match.group("excitation"))
-      emission = float(match.group("emission"))
-      measurement = f"Emission spectrum (Ex {excitation:g} nm)"
+    records: list[dict[str, object]] = []
+    for header_index in range(len(raw)):
+        header_text = " ".join(str(value).strip() for value in raw.iloc[header_index] if str(value).strip())
+        match = _SPECTRUM_HEADER_RE.search(header_text)
+        if not match:
+            continue
 
-      # The column-number row is normally immediately after the heading.
-      # Search a few rows forward so minor blank/header differences are safe.
-      column_header_index: Optional[int] = None
-      column_numbers: list[int] = []
-      for candidate_index in range(header_index + 1, min(header_index + 5, len(raw))):
-          candidate = [str(value).strip() for value in raw.iloc[candidate_index].tolist()]
-          parsed_columns: list[int] = []
-          for value in candidate:
-              try:
-                  number = int(float(value))
-              except (TypeError, ValueError):
-                  continue
-              if 1 <= number <= 12:
-                  parsed_columns.append(number)
-          if len(parsed_columns) >= 3:
-              column_header_index = candidate_index
-              column_numbers = parsed_columns[:12]
-              break
-      if column_header_index is None:
-          continue
+        excitation = float(match.group("excitation"))
+        emission = float(match.group("emission"))
+        measurement = f"Emission spectrum (Ex {excitation:g} nm)"
 
-      found_rows = 0
-      for row_index in range(column_header_index + 1, min(column_header_index + 12, len(raw))):
-          values = [str(value).strip() for value in raw.iloc[row_index].tolist()]
-          row_label_position = next(
-              (
-                  index
-                  for index, value in enumerate(values)
-                  if len(value) == 1 and value.upper() in PLATE_ROWS
-              ),
-              None,
-          )
-          if row_label_position is None:
-              if found_rows:
-                  break
-              continue
+        # the column-number row is usually right after the heading.
+        # search a few rows forward to allow small header differences.
+        column_header_index: Optional[int] = None
+        column_numbers: list[int] = []
+        for candidate_index in range(header_index + 1, min(header_index + 5, len(raw))):
+            candidate = [str(value).strip() for value in raw.iloc[candidate_index].tolist()]
+            parsed_columns: list[int] = []
+            for value in candidate:
+                try:
+                    number = int(float(value))
+                except (TypeError, ValueError):
+                    continue
+                if 1 <= number <= 12:
+                    parsed_columns.append(number)
+            if len(parsed_columns) >= 3:
+                column_header_index = candidate_index
+                column_numbers = parsed_columns[:12]
+                break
+        if column_header_index is None:
+            continue
 
-          row_letter = values[row_label_position].upper()
-          numeric_values = pd.to_numeric(
-              pd.Series(values[row_label_position + 1 : row_label_position + 1 + len(column_numbers)])
-              .str.replace(",", ".", regex=False),
-              errors="coerce",
-          )
-          if int(numeric_values.notna().sum()) < 3:
-              continue
+        found_rows = 0
+        for row_index in range(column_header_index + 1, min(column_header_index + 12, len(raw))):
+            values = [str(value).strip() for value in raw.iloc[row_index].tolist()]
+            row_label_position = next(
+                (
+                    index
+                    for index, value in enumerate(values)
+                    if len(value) == 1 and value.upper() in PLATE_ROWS
+                ),
+                None,
+            )
+            if row_label_position is None:
+                if found_rows:
+                    break
+                continue
 
-          found_rows += 1
-          for column_number, value in zip(column_numbers, numeric_values):
-              if pd.isna(value):
-                  continue
-              records.append(
-                  {
-                      "plate_id": plate_id,
-                      "source_file": source_file,
-                      "well": f"{row_letter}{column_number}",
-                      "row": row_letter,
-                      "column": int(column_number),
-                      "measurement": measurement,
-                      "wavelength_nm": emission,
-                      "excitation_nm": excitation,
-                      "value": float(value),
-                  }
-              )
+            row_letter = values[row_label_position].upper()
+            numeric_values = pd.to_numeric(
+                pd.Series(values[row_label_position + 1 : row_label_position + 1 + len(column_numbers)])
+                .str.replace(",", ".", regex=False),
+                errors="coerce",
+            )
+            if int(numeric_values.notna().sum()) < 3:
+                continue
 
-  if not records:
-      return None
+            found_rows += 1
+            for column_number, value in zip(column_numbers, numeric_values):
+                if pd.isna(value):
+                    continue
+                records.append(
+                    {
+                        "plate_id": plate_id,
+                        "source_file": source_file,
+                        "well": f"{row_letter}{column_number}",
+                        "row": row_letter,
+                        "column": int(column_number),
+                        "measurement": measurement,
+                        "wavelength_nm": emission,
+                        "excitation_nm": excitation,
+                        "value": float(value),
+                    }
+                )
 
-  output = pd.DataFrame.from_records(records, columns=_TIDY_COLUMNS)
-  output = output.drop_duplicates(
-      subset=["plate_id", "measurement", "wavelength_nm", "well"],
-      keep="last",
-  )
-  output["_well_order"] = output["well"].map(well_sort_key)
-  output = output.sort_values(["measurement", "wavelength_nm", "_well_order"]).drop(columns="_well_order")
-  return output.reset_index(drop=True)
+    if not records:
+        return None
+
+    output = pd.DataFrame.from_records(records, columns=_TIDY_COLUMNS)
+    output = output.drop_duplicates(
+        subset=["plate_id", "measurement", "wavelength_nm", "well"],
+        keep="last",
+    )
+    output["_well_order"] = output["well"].map(well_sort_key)
+    output = output.sort_values(["measurement", "wavelength_nm", "_well_order"]).drop(columns="_well_order")
+    return output.reset_index(drop=True)
 
 
 def _parse_long_format(raw: pd.DataFrame, source_file: str, plate_id: str) -> Optional[pd.DataFrame]:
-  for header_index in range(min(len(raw), 60)):
-      header_values = [str(value).strip() for value in raw.iloc[header_index].tolist()]
-      normalized = [re.sub(r"\s+", " ", value.lower()) for value in header_values]
-      well_positions = [index for index, value in enumerate(normalized) if value in _WELL_HEADER_ALIASES]
-      if not well_positions:
-          continue
+    for header_index in range(min(len(raw), 60)):
+        header_values = [str(value).strip() for value in raw.iloc[header_index].tolist()]
+        normalized = [re.sub(r"\s+", " ", value.lower()) for value in header_values]
+        well_positions = [index for index, value in enumerate(normalized) if value in _WELL_HEADER_ALIASES]
+        if not well_positions:
+            continue
 
-      well_column = well_positions[0]
-      body_end = len(raw)
-      for later_index in range(header_index + 1, len(raw)):
-          later_normalized = [re.sub(r"\s+", " ", str(value).strip().lower()) for value in raw.iloc[later_index]]
-          if any(value in _WELL_HEADER_ALIASES for value in later_normalized):
-              body_end = later_index
-              break
+        well_column = well_positions[0]
+        body_end = len(raw)
+        for later_index in range(header_index + 1, len(raw)):
+            later_normalized = [re.sub(r"\s+", " ", str(value).strip().lower()) for value in raw.iloc[later_index]]
+            if any(value in _WELL_HEADER_ALIASES for value in later_normalized):
+                body_end = later_index
+                break
 
-      body = raw.iloc[header_index + 1 : body_end].copy()
-      headers: list[str] = []
-      seen: dict[str, int] = {}
-      for index, value in enumerate(header_values):
-          base = _clean_header(value, f"Column {index + 1}")
-          seen[base] = seen.get(base, 0) + 1
-          headers.append(base if seen[base] == 1 else f"{base} ({seen[base]})")
-      body.columns = headers
+        body = raw.iloc[header_index + 1 : body_end].copy()
+        headers: list[str] = []
+        seen: dict[str, int] = {}
+        for index, value in enumerate(header_values):
+            base = _clean_header(value, f"Column {index + 1}")
+            seen[base] = seen.get(base, 0) + 1
+            headers.append(base if seen[base] == 1 else f"{base} ({seen[base]})")
+        body.columns = headers
 
-      wells = body.iloc[:, well_column]
-      measurement_columns: list[str] = []
-      for column_index, column_name in enumerate(body.columns):
-          if column_index == well_column:
-              continue
-          lower_name = re.sub(r"\s+", " ", column_name.lower())
-          if lower_name in _METADATA_COLUMN_HINTS:
-              continue
-          if _numeric_ratio(body[column_name]) >= 0.55:
-              measurement_columns.append(column_name)
+        wells = body.iloc[:, well_column]
+        measurement_columns: list[str] = []
+        for column_index, column_name in enumerate(body.columns):
+            if column_index == well_column:
+                continue
+            lower_name = re.sub(r"\s+", " ", column_name.lower())
+            if lower_name in _METADATA_COLUMN_HINTS:
+                continue
+            if _numeric_ratio(body[column_name]) >= 0.55:
+                measurement_columns.append(column_name)
 
-      if measurement_columns:
-          parsed = _canonical_long_table(
-              source_file=source_file,
-              plate_id=plate_id,
-              wells=wells,
-              measurement_frame=body[measurement_columns],
-          )
-          if not parsed.empty:
-              return parsed
-  return None
+        if measurement_columns:
+            parsed = _canonical_long_table(
+                source_file=source_file,
+                plate_id=plate_id,
+                wells=wells,
+                measurement_frame=body[measurement_columns],
+            )
+            if not parsed.empty:
+                return parsed
+    return None
 
 
 def _parse_well_value_rows(raw: pd.DataFrame, source_file: str, plate_id: str) -> Optional[pd.DataFrame]:
-  best_records: list[tuple[str, float]] = []
-  for well_column in range(raw.shape[1]):
-      records: list[tuple[str, float]] = []
-      for _, row in raw.iterrows():
-          try:
-              well = normalize_well(str(row.iloc[well_column]))
-          except ValueError:
-              continue
-          numeric_candidates = pd.to_numeric(
-              row.iloc[well_column + 1 :].astype(str).str.replace(",", ".", regex=False),
-              errors="coerce",
-          ).dropna()
-          if numeric_candidates.empty:
-              continue
-          records.append((well, float(numeric_candidates.iloc[-1])))
-      if len(records) > len(best_records):
-          best_records = records
+    best_records: list[tuple[str, float]] = []
+    for well_column in range(raw.shape[1]):
+        records: list[tuple[str, float]] = []
+        for _, row in raw.iterrows():
+            try:
+                well = normalize_well(str(row.iloc[well_column]))
+            except ValueError:
+                continue
+            numeric_candidates = pd.to_numeric(
+                row.iloc[well_column + 1 :].astype(str).str.replace(",", ".", regex=False),
+                errors="coerce",
+            ).dropna()
+            if numeric_candidates.empty:
+                continue
+            records.append((well, float(numeric_candidates.iloc[-1])))
+        if len(records) > len(best_records):
+            best_records = records
 
-  if len(best_records) < 3:
-      return None
-  frame = pd.DataFrame(best_records, columns=["well", "Signal"])
-  return _canonical_long_table(
-      source_file=source_file,
-      plate_id=plate_id,
-      wells=frame["well"],
-      measurement_frame=frame[["Signal"]],
-  )
+    if len(best_records) < 3:
+        return None
+    frame = pd.DataFrame(best_records, columns=["well", "Signal"])
+    return _canonical_long_table(
+        source_file=source_file,
+        plate_id=plate_id,
+        wells=frame["well"],
+        measurement_frame=frame[["Signal"]],
+    )
 
 
 def _parse_plate_grid(raw: pd.DataFrame, source_file: str, plate_id: str) -> Optional[pd.DataFrame]:
-  records: list[tuple[str, float]] = []
-  for _, row in raw.iterrows():
-      row_values = [str(value).strip() for value in row.tolist()]
-      row_label_index = next(
-          (
-              i
-              for i, value in enumerate(row_values)
-              if len(value) == 1 and value.upper() in PLATE_ROWS
-          ),
-          None,
-      )
-      if row_label_index is None:
-          continue
+    records: list[tuple[str, float]] = []
+    for _, row in raw.iterrows():
+        row_values = [str(value).strip() for value in row.tolist()]
+        row_label_index = next(
+            (
+                i
+                for i, value in enumerate(row_values)
+                if len(value) == 1 and value.upper() in PLATE_ROWS
+            ),
+            None,
+        )
+        if row_label_index is None:
+            continue
 
-      numeric = pd.to_numeric(
-          pd.Series(row_values[row_label_index + 1 : 13 + row_label_index]).str.replace(",", ".", regex=False),
-          errors="coerce",
-      )
-      valid_count = int(numeric.notna().sum())
-      if valid_count < 3:
-          continue
-      row_letter = row_values[row_label_index].upper()
-      for index, value in enumerate(numeric, start=1):
-          if pd.notna(value) and index <= 12:
-              records.append((f"{row_letter}{index}", float(value)))
+        numeric = pd.to_numeric(
+            pd.Series(row_values[row_label_index + 1 : 13 + row_label_index]).str.replace(",", ".", regex=False),
+            errors="coerce",
+        )
+        valid_count = int(numeric.notna().sum())
+        if valid_count < 3:
+            continue
+        row_letter = row_values[row_label_index].upper()
+        for index, value in enumerate(numeric, start=1):
+            if pd.notna(value) and index <= 12:
+                records.append((f"{row_letter}{index}", float(value)))
 
-  if len(records) < 3:
-      return None
-  frame = pd.DataFrame(records, columns=["well", "Signal"])
-  frame = frame.drop_duplicates(subset="well", keep="last")
-  return _canonical_long_table(
-      source_file=source_file,
-      plate_id=plate_id,
-      wells=frame["well"],
-      measurement_frame=frame[["Signal"]],
-  )
+    if len(records) < 3:
+        return None
+    frame = pd.DataFrame(records, columns=["well", "Signal"])
+    frame = frame.drop_duplicates(subset="well", keep="last")
+    return _canonical_long_table(
+        source_file=source_file,
+        plate_id=plate_id,
+        wells=frame["well"],
+        measurement_frame=frame[["Signal"]],
+    )
 
 
 def load_plate_csv(path: Union[str, Path], plate_id: Optional[str] = None) -> pd.DataFrame:
-  """Load one CSV and return tidy measurement data.
+    """Load one CSV and return tidy measurement data.
 
-  The returned table has one row per well and measurement, with columns
-  ``plate_id``, ``source_file``, ``well``, ``row``, ``column``,
-  ``measurement``, and ``value``.
-  """
-  csv_path = Path(path)
-  if not csv_path.exists():
-      raise FileNotFoundError(csv_path)
-  plate_name = plate_id or csv_path.stem
-  raw = _read_rectangular_csv(csv_path)
+    The returned table has one row per well and measurement, with columns
+    ``plate_id``, ``source_file``, ``well``, ``row``, ``column``,
+    ``measurement``, and ``value``.
+    """
+    csv_path = Path(path)
+    if not csv_path.exists():
+        raise FileNotFoundError(csv_path)
+    plate_name = plate_id or csv_path.stem
+    raw = _read_rectangular_csv(csv_path)
 
-  for parser in (
-      _parse_clariostar_emission_spectrum,
-      _parse_long_format,
-      _parse_well_value_rows,
-      _parse_plate_grid,
-  ):
-      parsed = parser(raw, csv_path.name, plate_name)
-      if parsed is not None and not parsed.empty:
-          return parsed
+    for parser in (
+        _parse_clariostar_emission_spectrum,
+        _parse_long_format,
+        _parse_well_value_rows,
+        _parse_plate_grid,
+    ):
+        parsed = parser(raw, csv_path.name, plate_name)
+        if parsed is not None and not parsed.empty:
+            return parsed
 
-  raise ValueError(
-      f"Could not identify well-level numeric data in {csv_path.name}. "
-      "Use a CLARIOstar long export with a Well column, a plate-grid export, "
-      "or a two-column Well/Value file."
-  )
+    raise ValueError(
+        f"Could not identify well-level numeric data in {csv_path.name}. "
+        "Use a CLARIOstar long export with a Well column, a plate-grid export, "
+        "or a two-column Well/Value file."
+    )
 
 
 def load_plate_csvs(paths: Iterable[Union[str, Path]]) -> pd.DataFrame:
-  """Load multiple CSVs, assigning unique plate IDs derived from file names."""
-  frames: list[pd.DataFrame] = []
-  used_ids: dict[str, int] = {}
-  for path in paths:
-      csv_path = Path(path)
-      base = csv_path.stem
-      used_ids[base] = used_ids.get(base, 0) + 1
-      plate_id = base if used_ids[base] == 1 else f"{base}_{used_ids[base]}"
-      frames.append(load_plate_csv(csv_path, plate_id=plate_id))
-  if not frames:
-      return pd.DataFrame(
-          columns=_TIDY_COLUMNS
-      )
-  return pd.concat(frames, ignore_index=True)
+    """Load multiple CSVs, assigning unique plate IDs derived from file names."""
+    frames: list[pd.DataFrame] = []
+    used_ids: dict[str, int] = {}
+    for path in paths:
+        csv_path = Path(path)
+        base = csv_path.stem
+        used_ids[base] = used_ids.get(base, 0) + 1
+        plate_id = base if used_ids[base] == 1 else f"{base}_{used_ids[base]}"
+        frames.append(load_plate_csv(csv_path, plate_id=plate_id))
+    if not frames:
+        return pd.DataFrame(
+            columns=_TIDY_COLUMNS
+        )
+    return pd.concat(frames, ignore_index=True)
