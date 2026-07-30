@@ -1,7 +1,7 @@
 # Protein-Folding-Practical
 For Imperial College London's Protein Folding Practical lead by Dr. Ernesto Cota.
 
-If you need any help, want to report a bug, or have suggestions on improving the software, email me at benwshin@gmail.com
+If you need any help, want to report a bug, or have suggestions on improving the software, email Dr. Cota or me at benwshin@gmail.com
 
 Python based GUI software to process GFP folding practical data from 96 well CLARIOstar plate reader exports.
 
