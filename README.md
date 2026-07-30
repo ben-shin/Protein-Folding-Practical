@@ -86,16 +86,30 @@ A logistic curve alone does NOT provide thermodynamic folding free energies. The
 
 Python 3.9 or newer is recommended.
 
+### Windows PowerShell
 ```bash
-git clone https://github.com/ben-shin/Protein-Folding-Practical.git
-cd Protein-Folding-Practical
-python3.9 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+conda env create -f .\environment.yml
+conda activate proteinfoldingpractical
 python -m pip install -e . --no-deps
-python run_app.py
+.\launch_windows.ps1
 ```
+### Linux
+```bash
+conda env create -f environment.yml
+conda activate proteinfoldingpractical
+python -m pip install -e . --no-deps
+chmod +x launch_linux.sh
+./launch_linux.sh
+```
+### macOS
+```bash
+conda env create -f environment.yml
+conda activate proteinfoldingpractical
+python -m pip install -e . --no-deps
+chmod +x launch_macos.command
+./launch_macos.command
+```
+
 
 ## Practical workflow
 
