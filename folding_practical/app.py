@@ -792,8 +792,8 @@ class FoldingPracticalApp(tk.Tk):
                 f"{self.spectrum_measurement_var.get()} — {self.spectrum_plate_var.get()}"
             )
             self.spectrum_axes.grid(True, alpha=0.25)
-            self.spectrum_axes.legend(fontsize="small", ncols=2)
-            self.spectrum_canvas.draw_idle()
+            self.spectrum_axes.legend(fontsize="small", ncol=2)
+            self.spectrum_canvas.draw()
             self.status_var.set(f"Plotted spectra for {spectrum['well'].nunique()} well(s).")
         except Exception as exc:
             messagebox.showerror("Cannot plot spectra", str(exc))
@@ -894,8 +894,8 @@ class FoldingPracticalApp(tk.Tk):
         self.axes.set_ylabel(signal_column)
         self.axes.set_title("GFP chemical denaturation")
         self.axes.grid(True, alpha=0.25)
-        self.axes.legend(fontsize="small", ncols=1)
-        self.canvas.draw_idle()
+        self.axes.legend(fontsize="small", ncol=1)
+        self.canvas.draw()
         self.status_var.set(f"Fitted {len(selected_names)} group(s). Compare AICc only when both models converged.")
 
     def _insert_report_row(self, row: dict[str, object]) -> None:
