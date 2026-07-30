@@ -1,22 +1,22 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=61,<76"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "protein-folding-practical"
-version = "0.1.0"
-description = "GUI workflow for importing, organising, fitting, and exporting GFP GuHCl denaturation data"
+version = "0.2.1"
+description = "GUI workflow for importing, organizing, fitting, and exporting GFP GuHCl denaturation data"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9,<3.13"
 dependencies = [
-  "matplotlib>=3.7",
-  "numpy>=1.24",
-  "pandas>=2.0",
-  "scipy>=1.10",
+  "matplotlib>=3.6.3,<3.9",
+  "numpy>=1.23.5,<2.0",
+  "pandas>=1.5.3,>2.3",
+  "scipy>=1.9.3,<1.14",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4"]
+dev = ["pytest>=7.4,<9"]
 
 [project.scripts]
 protein-folding-practical = "folding_practical.app:main"
