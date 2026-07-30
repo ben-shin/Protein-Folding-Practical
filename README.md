@@ -124,6 +124,17 @@ chmod +x launch_macos.command
 9. In the analysis tab, select any of the groups, choose **Auto compare** and run the fit.
 10. Check the graph, model comps, param uncertainty, and residual plausibility.
 
+## IMPORTANT
+As of now, the code expects a groups entire 16 conditions to be in a single plate. Make sure this happens. Or I guess I can try to make the data processing a bit more flexible in the future.
+
+The group map CSV is used to automatically assign wells and concentrations to groups. The CSV must have three columns with headers
+```text
+group name, plate number, well ranges
+```
+The plate number should match the name of the plate reading CSV file.
+
+If any of these conditions are not met, you will have to manually pick groups. So make sure the formatting is correct. Just reference the examples folder for what is good formatting.
+
 ## Tests
 ```bash
 python -m pytest -q
