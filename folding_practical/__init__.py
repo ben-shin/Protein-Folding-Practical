@@ -1,11 +1,10 @@
-"""Tools for importing, organizing, fitting, and plotting GFP denaturation data."""
+"""Protein folding practical analysis package."""
 
 from __future__ import annotations
 
-from importlib import import_module
 from typing import Any
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "FitResult",
@@ -19,24 +18,37 @@ __all__ = [
     "load_plate_csvs",
 ]
 
-_LAZY_IMPORTS = {
-    "FitResult": (".models", "FitResult"),
-    "fit_four_parameter_logistic": (".models", "fit_four_parameter_logistic"),
-    "fit_two_state_denaturation": (".models", "fit_two_state_denaturation"),
-    "load_plate_csv": (".plate_io", "load_plate_csv"),
-    "load_plate_csvs": (".plate_io", "load_plate_csvs"),
-    "GroupAssignment": (".project", "GroupAssignment"),
-    "build_group_dataframe": (".project", "build_group_dataframe"),
-    "build_spectrum_dataframe": (".project", "build_spectrum_dataframe"),
-    "load_group_map_assignments": (".project", "load_group_map_assignments"),
-}
-
 
 def __getattr__(name: str) -> Any:
-    try:
-        module_name, attribute_name = _LAZY_IMPORTS[name]
-    except KeyError as exc:
-        raise AttributeError(name) from exc
-    value = getattr(import_module(module_name, __name__), attribute_name)
-    globals()[name] = value
-    return value
+    if name in {"FitResult", "fit_four_parameter_logistic", "fit_two_state_denaturation"}:
+        from .models import FitResult, fit_four_parameter_logistic, fit_two_state_denaturation
+
+        return {
+            "FitResult": FitResult,
+            "fit_four_parameter_logistic": fit_four_parameter_logistic,
+            "fit_two_state_denaturation": fit_two_state_denaturation,
+        }[name]
+    if name in {
+        "GroupAssignment",
+        "build_group_dataframe",
+        "build_spectrum_dataframe",
+        "load_group_map_assignments",
+    }:
+        from .project import (
+            GroupAssignment,
+            build_group_dataframe,
+            build_spectrum_dataframe,
+            load_group_map_assignments,
+        )
+
+        return {
+            "GroupAssignment": GroupAssignment,
+            "build_group_dataframe": build_group_dataframe,
+            "build_spectrum_dataframe": build_spectrum_dataframe,
+            "load_group_map_assignments": load_group_map_assignments,
+        }[name]
+    if name in {"load_plate_csv", "load_plate_csvs"}:
+        from .plate_io import load_plate_csv, load_plate_csvs
+
+        return {"load_plate_csv": load_plate_csv, "load_plate_csvs": load_plate_csvs}[name]
+    raise AttributeError(name)

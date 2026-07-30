@@ -8,6 +8,11 @@ import tkinter as tk
 from tkinter import ttk
 
 
+BACKGROUND = "#071426"
+ACCENT = "#6957f5"
+ACCENT_CYAN = "#24c8d8"
+
+
 def _center(window: tk.Tk, width: int, height: int) -> None:
     window.update_idletasks()
     x = max(0, (window.winfo_screenwidth() - width) // 2)
@@ -19,27 +24,27 @@ def main() -> None:
     splash = tk.Tk()
     splash.title("Protein Folding Practical")
     splash.resizable(False, False)
-    splash.configure(background="#15243b")
-    _center(splash, 430, 190)
+    splash.configure(background=BACKGROUND)
+    _center(splash, 470, 230)
 
-    panel = tk.Frame(splash, background="#15243b", padx=28, pady=24)
-    panel.pack(fill="both", expand=True)
-    tk.Label(
-        panel,
-        text="Protein Folding Practical",
-        background="#15243b",
-        foreground="#ffffff",
-        font=("TkDefaultFont", 17, "bold"),
-    ).pack(anchor="w")
-    tk.Label(
-        panel,
-        text="Loading analysis tools...",
-        background="#15243b",
-        foreground="#cbd5e1",
-        font=("TkDefaultFont", 10),
-    ).pack(anchor="w", pady=(8, 18))
-    progress = ttk.Progressbar(panel, mode="indeterminate", length=370)
-    progress.pack(fill="x")
+    canvas = tk.Canvas(splash, background=BACKGROUND, highlightthickness=0, borderwidth=0)
+    canvas.pack(fill="both", expand=True)
+    canvas.create_oval(350, -70, 515, 95, fill="#243f83", outline="")
+    canvas.create_oval(390, 35, 485, 130, fill="#156b87", outline="")
+    canvas.create_line(355, 36, 430, 78, fill="#82ddf0", width=2)
+    canvas.create_oval(348, 28, 364, 44, fill="#b7f4fb", outline="")
+    canvas.create_oval(423, 70, 441, 88, fill="#b7f4fb", outline="")
+    canvas.create_rectangle(0, 0, 7, 230, fill=ACCENT, outline="")
+    canvas.create_text(30, 44, text="Protein Folding Practical", fill="#ffffff", anchor="w", font=("TkDefaultFont", 19, "bold"))
+    canvas.create_text(30, 78, text="Loading plate analysis tools...", fill="#c8d5ea", anchor="w", font=("TkDefaultFont", 10))
+    canvas.create_text(30, 199, text="Designed by Ben Shin", fill="#7f91ad", anchor="w", font=("TkDefaultFont", 8))
+
+    style = ttk.Style(splash)
+    if "clam" in style.theme_names():
+        style.theme_use("clam")
+    style.configure("Splash.Horizontal.TProgressbar", troughcolor="#162844", background=ACCENT_CYAN, bordercolor="#162844")
+    progress = ttk.Progressbar(splash, mode="indeterminate", length=390, style="Splash.Horizontal.TProgressbar")
+    progress.place(x=30, y=126, width=390, height=12)
     progress.start(12)
 
     result_queue = Queue()
