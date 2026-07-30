@@ -87,17 +87,11 @@ A logistic curve alone does NOT provide thermodynamic folding free energies. The
 Python 3.9 or newer is recommended.
 
 ```bash
-python -m venv .venv
+python3.9 -m venv .venv
 source .venv/bin/activate
-pip install -e .
-```
-
-Run the application with either
-```bash
-protein-folding-practical
-```
-or
-```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -e . --no-deps
 python run_app.py
 ```
 
@@ -113,3 +107,8 @@ python run_app.py
 8. Export the clean group CSVs.
 9. In the analysis tab, select any of the groups, choose **Auto compare** and run the fit.
 10. Check the graph, model comps, param uncertainty, and residual plausibility.
+
+## Tests
+```bash
+python -m pytest -q
+```
