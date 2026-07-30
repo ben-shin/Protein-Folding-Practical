@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
+import re
+from typing import Mapping, Optional, Union
 
 import numpy as np
 import pandas as pd
 
-from .wells import normalize_well
+from .wells import expand_well_spec, normalize_well
 
 EXPORT_COLUMNS = [
     "GuHCl concentration (M)",
@@ -45,6 +46,220 @@ class GroupAssignment:
             self.wavelength_nm = float(self.wavelength_nm)
             if not np.isfinite(self.wavelength_nm):
                 raise ValueError("Wavelength must be a finite number")
+
+
+_GROUP_MAP_ALIASES = {
+    "group": {"group", "groupname", "practicalgroup", "practicalgroupname"},
+    "plate": {"plate", "plateid", "platenumber", "platefile"},
+    "wells": {"wells", "wellrange", "wellranges", "wellspec", "wellspecification"},
+    "measurement": {"measurement", "signal", "readout"},
+    "wavelength": {"wavelength", "wavelengthnm", "emissionwavelength", "emissionwavelengthnm"},
+    "concentrations": {
+        "concentrations",
+        "guhcl",
+        "guhclconcentrations",
+        "guhclconcentrationsm",
+    },
+}
+
+
+def _normalize_label(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value).strip().lower())
+
+
+def _find_group_map_column(columns: list[object], field: str) -> Optional[object]:
+    aliases = _GROUP_MAP_ALIASES[field]
+    for column in columns:
+        if _normalize_label(column) in aliases:
+            return column
+    return None
+
+
+def _plate_aliases(data: pd.DataFrame, plate_id: str) -> set[str]:
+    names = {str(plate_id)}
+    if "source_file" in data.columns:
+        sources = data.loc[data["plate_id"].astype(str) == str(plate_id), "source_file"].dropna()
+        for source in sources.astype(str):
+            names.add(source)
+            names.add(Path(source).stem)
+    aliases: set[str] = set()
+    for name in names:
+        aliases.add(_normalize_label(name))
+        leading = re.match(r"^[A-Za-z]+\d+", name.strip())
+        if leading:
+            aliases.add(_normalize_label(leading.group(0)))
+    return {alias for alias in aliases if alias}
+
+
+def _resolve_plate_id(data: pd.DataFrame, requested: str) -> str:
+    requested_key = _normalize_label(requested)
+    if not requested_key:
+        raise ValueError("Plate number cannot be empty")
+    matches = [
+        str(plate_id)
+        for plate_id in dict.fromkeys(data["plate_id"].astype(str))
+        if requested_key in _plate_aliases(data, str(plate_id))
+    ]
+    if not matches:
+        available = ", ".join(dict.fromkeys(data["plate_id"].astype(str)))
+        raise ValueError(f"Plate {requested!r} was not loaded. Available plates: {available}")
+    if len(matches) > 1:
+        raise ValueError(f"Plate {requested!r} matches more than one loaded plate: {', '.join(matches)}")
+    return matches[0]
+
+
+def _resolve_measurement(data: pd.DataFrame, plate_id: str, requested: str, default: str) -> str:
+    available = list(
+        dict.fromkeys(data.loc[data["plate_id"].astype(str) == plate_id, "measurement"].astype(str))
+    )
+    choice = requested.strip() or default.strip()
+    if choice:
+        matches = [value for value in available if value.lower() == choice.lower()]
+        if len(matches) == 1:
+            return matches[0]
+    if len(available) == 1:
+        return available[0]
+    raise ValueError(
+        f"Plate {plate_id!r} has several signals. Add a measurement column or select the signal first"
+    )
+
+
+def _resolve_wavelength(
+    data: pd.DataFrame,
+    plate_id: str,
+    measurement: str,
+    requested: str,
+    default: Optional[float],
+) -> Optional[float]:
+    if "wavelength_nm" not in data.columns:
+        return None
+    subset = data.loc[
+        (data["plate_id"].astype(str) == plate_id)
+        & (data["measurement"].astype(str) == measurement),
+        "wavelength_nm",
+    ]
+    available = sorted(pd.to_numeric(subset, errors="coerce").dropna().unique().tolist())
+    if not available:
+        return None
+
+    candidates: list[float] = []
+    if requested.strip():
+        candidates.append(float(requested))
+    if default is not None:
+        candidates.append(float(default))
+    candidates.append(508.0)
+
+    for candidate in candidates:
+        matches = [value for value in available if np.isclose(value, candidate)]
+        if matches:
+            return float(matches[0])
+    if len(available) == 1:
+        return float(available[0])
+    raise ValueError(
+        f"Plate {plate_id!r} has several wavelengths. Add a wavelength column or select one first"
+    )
+
+
+def _parse_concentrations(value: str, default: list[float]) -> list[float]:
+    if not value.strip():
+        return [float(item) for item in default]
+    tokens = [token for token in re.split(r"[,;|\s]+", value.strip()) if token]
+    return [float(token) for token in tokens]
+
+
+def load_group_map_assignments(
+    data: pd.DataFrame,
+    path: Union[str, Path],
+    *,
+    default_concentrations: list[float],
+    default_measurement: str = "",
+    default_wavelength_nm: Optional[float] = None,
+    existing_assignments: Optional[Mapping[str, GroupAssignment]] = None,
+) -> dict[str, GroupAssignment]:
+    """Load practical groups from a simple CSV map."""
+    if data.empty:
+        raise ValueError("Load plate data first")
+
+    table = pd.read_csv(path, dtype=str, keep_default_na=False)
+    if table.empty:
+        raise ValueError("The group map is empty")
+
+    columns = list(table.columns)
+    group_column = _find_group_map_column(columns, "group")
+    plate_column = _find_group_map_column(columns, "plate")
+    wells_column = _find_group_map_column(columns, "wells")
+    missing = [
+        label
+        for label, column in (
+            ("group name", group_column),
+            ("plate number", plate_column),
+            ("well ranges", wells_column),
+        )
+        if column is None
+    ]
+    if missing:
+        raise ValueError(f"The group map is missing columns: {', '.join(missing)}")
+
+    measurement_column = _find_group_map_column(columns, "measurement")
+    wavelength_column = _find_group_map_column(columns, "wavelength")
+    concentration_column = _find_group_map_column(columns, "concentrations")
+
+    imported_names = [str(value).strip() for value in table[group_column]]
+    if any(not name for name in imported_names):
+        raise ValueError("Every row needs a group name")
+    duplicates = sorted({name for name in imported_names if imported_names.count(name) > 1})
+    if duplicates:
+        raise ValueError(f"The group map repeats group names: {', '.join(duplicates)}")
+
+    occupied: dict[tuple[str, str], str] = {}
+    for name, assignment in (existing_assignments or {}).items():
+        if name in imported_names:
+            continue
+        for well in assignment.wells:
+            occupied[(assignment.plate_id, well)] = name
+
+    assignments: dict[str, GroupAssignment] = {}
+    for row_number, (_, row) in enumerate(table.iterrows(), start=2):
+        try:
+            name = str(row[group_column]).strip()
+            plate_id = _resolve_plate_id(data, str(row[plate_column]))
+            wells = expand_well_spec(str(row[wells_column]))
+            concentrations = _parse_concentrations(
+                str(row[concentration_column]) if concentration_column is not None else "",
+                default_concentrations,
+            )
+            measurement = _resolve_measurement(
+                data,
+                plate_id,
+                str(row[measurement_column]) if measurement_column is not None else "",
+                default_measurement,
+            )
+            wavelength = _resolve_wavelength(
+                data,
+                plate_id,
+                measurement,
+                str(row[wavelength_column]) if wavelength_column is not None else "",
+                default_wavelength_nm,
+            )
+            assignment = GroupAssignment(
+                name=name,
+                plate_id=plate_id,
+                wells=wells,
+                concentrations=concentrations,
+                measurement=measurement,
+                wavelength_nm=wavelength,
+            )
+            build_group_dataframe(data, assignment)
+            for well in assignment.wells:
+                previous = occupied.get((plate_id, well))
+                if previous is not None:
+                    raise ValueError(f"Well {well} is already assigned to {previous!r}")
+                occupied[(plate_id, well)] = name
+            assignments[name] = assignment
+        except Exception as exc:
+            raise ValueError(f"Group map row {row_number}: {exc}") from exc
+
+    return assignments
 
 
 def normalize_fluorescence(values: Union[np.ndarray, pd.Series]) -> np.ndarray:

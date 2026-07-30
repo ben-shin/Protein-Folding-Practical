@@ -22,6 +22,7 @@ from .project import (
     build_group_dataframe,
     build_spectrum_dataframe,
     export_group_csv,
+    load_group_map_assignments,
 )
 from .wells import PLATE_ROWS, consecutive_wells, expand_well_spec, well_sort_key
 
@@ -56,6 +57,7 @@ class FoldingPracticalApp(tk.Tk):
         self.fit_mode_var = tk.StringVar(value="Auto compare")
         self.spectrum_plate_var = tk.StringVar()
         self.spectrum_measurement_var = tk.StringVar()
+        self.spectrum_group_var = tk.StringVar()
         self.spectrum_well_spec_var = tk.StringVar(value="A1")
         self.spectrum_signal_mode_var = tk.StringVar(value="Raw fluorescence")
 
@@ -85,7 +87,8 @@ class FoldingPracticalApp(tk.Tk):
         import_bar = ttk.Frame(self.data_tab)
         import_bar.grid(row=0, column=0, columnspan=2, sticky="ew", padx=6, pady=6)
         ttk.Button(import_bar, text="Load CSV files", command=self.load_files).pack(side="left")
-        ttk.Button(import_bar, text="Export tidy imported data", command=self.export_tidy_data).pack(side="left", padx=6)
+        ttk.Button(import_bar, text="Load group map CSV", command=self.load_group_map).pack(side="left", padx=6)
+        ttk.Button(import_bar, text="Export tidy data", command=self.export_tidy_data).pack(side="left")
         ttk.Label(import_bar, text="Plate:").pack(side="left", padx=(18, 4))
         self.plate_combo = ttk.Combobox(import_bar, textvariable=self.plate_var, state="readonly", width=24)
         self.plate_combo.pack(side="left")
@@ -305,7 +308,17 @@ class FoldingPracticalApp(tk.Tk):
         self.spectrum_measurement_combo.pack(fill="x", pady=(4, 10))
         self.spectrum_measurement_combo.bind("<<ComboboxSelected>>", lambda _event: self.refresh_spectrum_wells())
 
-        ttk.Label(controls, text="Wells (for example A1:A4, B2)").pack(anchor="w")
+        ttk.Label(controls, text="Practical group").pack(anchor="w")
+        self.spectrum_group_combo = ttk.Combobox(
+            controls,
+            textvariable=self.spectrum_group_var,
+            state="readonly",
+            width=32,
+        )
+        self.spectrum_group_combo.pack(fill="x", pady=(4, 4))
+        ttk.Button(controls, text="Select entire group", command=self.use_group_for_spectra).pack(fill="x", pady=(0, 10))
+
+        ttk.Label(controls, text="Wells (for example A1-A4, B2)").pack(anchor="w")
         ttk.Entry(controls, textvariable=self.spectrum_well_spec_var, width=32).pack(fill="x", pady=(4, 4))
         ttk.Button(controls, text="Select wells from entry", command=self.select_spectrum_wells_from_spec).pack(fill="x", pady=2)
         ttk.Button(controls, text="Use plate-map selection", command=self.use_plate_map_selection_for_spectra).pack(fill="x", pady=2)
@@ -383,6 +396,29 @@ class FoldingPracticalApp(tk.Tk):
         except Exception as exc:
             messagebox.showerror("Import failed", f"{exc}\n\n{traceback.format_exc(limit=1)}")
 
+
+    def load_group_map(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select group map CSV",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            wavelength = float(self.wavelength_var.get()) if self.wavelength_var.get() else None
+            imported = load_group_map_assignments(
+                self.data,
+                path,
+                default_concentrations=self._parse_concentrations(),
+                default_measurement=self.measurement_var.get(),
+                default_wavelength_nm=wavelength,
+                existing_assignments=self.assignments,
+            )
+            self.assignments.update(imported)
+            self.refresh_group_views()
+            self.status_var.set(f"Loaded {len(imported)} practical group(s) from {Path(path).name}.")
+        except Exception as exc:
+            messagebox.showerror("Cannot load group map", str(exc))
 
     def on_plate_changed(self, _event: Optional[object] = None) -> None:
         if self.data.empty or not self.plate_var.get():
@@ -554,6 +590,11 @@ class FoldingPracticalApp(tk.Tk):
             if name in current_selection:
                 self.analysis_group_list.selection_set(index)
 
+        group_names = list(self.assignments)
+        self.spectrum_group_combo["values"] = group_names
+        if self.spectrum_group_var.get() not in group_names:
+            self.spectrum_group_var.set(group_names[0] if group_names else "")
+
     def delete_group(self) -> None:
         selected = self.group_tree.selection()
         if not selected:
@@ -688,6 +729,28 @@ class FoldingPracticalApp(tk.Tk):
             self.refresh_spectrum_wells()
         self.spectrum_well_spec_var.set(", ".join(self.selected_wells))
         self.select_spectrum_wells_from_spec()
+
+    def use_group_for_spectra(self) -> None:
+        group_name = self.spectrum_group_var.get()
+        if not group_name or group_name not in self.assignments:
+            messagebox.showinfo("No group selected", "Select a practical group first.")
+            return
+        try:
+            assignment = self.assignments[group_name]
+            available_plates = list(self.spectrum_plate_combo["values"])
+            if assignment.plate_id not in available_plates:
+                raise ValueError(f"No wavelength scan is loaded for plate {assignment.plate_id!r}")
+            self.spectrum_plate_var.set(assignment.plate_id)
+            self.on_spectrum_plate_changed()
+            available_measurements = list(self.spectrum_measurement_combo["values"])
+            if assignment.measurement in available_measurements:
+                self.spectrum_measurement_var.set(assignment.measurement)
+                self.refresh_spectrum_wells()
+            self.spectrum_well_spec_var.set(", ".join(assignment.wells))
+            self.select_spectrum_wells_from_spec()
+            self.status_var.set(f"Selected all {len(assignment.wells)} wells from {group_name}.")
+        except Exception as exc:
+            messagebox.showerror("Cannot select group spectra", str(exc))
 
     def select_all_spectrum_wells(self) -> None:
         self.spectrum_well_list.selection_set(0, tk.END)

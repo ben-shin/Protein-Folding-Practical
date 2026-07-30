@@ -95,15 +95,16 @@ def expand_well_spec(specification: Union[str, Iterable[str]]) -> list[str]:
         An explicit ordered list.
     """
     if isinstance(specification, str):
-        tokens = [token for token in re.split(r"[,;\s]+", specification.strip()) if token]
+        cleaned = re.sub(r"\s*([:-])\s*", r"\1", specification.strip())
+        tokens = [token for token in re.split(r"[,;\s]+", cleaned) if token]
     else:
         tokens = [str(token).strip() for token in specification if str(token).strip()]
 
     wells: list[str] = []
     for token in tokens:
-        if ":" in token:
-            start, end = token.split(":", maxsplit=1)
-            wells.extend(_expand_range(start, end))
+        range_match = re.fullmatch(r"([A-Ha-h]\s*0*(?:[1-9]|1[0-2]))[:-]([A-Ha-h]\s*0*(?:[1-9]|1[0-2]))", token)
+        if range_match:
+            wells.extend(_expand_range(range_match.group(1), range_match.group(2)))
         else:
             wells.append(normalize_well(token))
 
