@@ -19,3 +19,10 @@ def test_expand_well_ranges():
 def test_consecutive_wells():
     assert consecutive_wells("A11", 4, "row-major") == ["A11", "A12", "B1", "B2"]
     assert consecutive_wells("G1", 4, "column-major") == ["G1", "H1", "A2", "B2"]
+
+
+def test_expand_hyphenated_well_range():
+    assert expand_well_spec("A1-B4") == [
+        "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8",
+        "A9", "A10", "A11", "A12", "B1", "B2", "B3", "B4",
+    ]

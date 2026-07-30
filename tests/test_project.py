@@ -92,3 +92,72 @@ def test_group_rejects_unselected_multiwavelength_signal():
 
     with pytest.raises(ValueError, match="select one emission wavelength"):
         build_group_dataframe(data, assignment)
+
+
+def test_load_group_map_assignments(tmp_path):
+    from folding_practical.project import load_group_map_assignments
+
+    wells = [f"A{column}" for column in range(1, 13)] + [f"B{column}" for column in range(1, 5)]
+    rows = []
+    for wavelength in (508.0, 509.0):
+        for index, well in enumerate(wells):
+            rows.append(
+                {
+                    "plate_id": "P1(Microplate End point)",
+                    "source_file": "P1(Microplate End point).csv",
+                    "well": well,
+                    "measurement": "Emission spectrum (Ex 472 nm)",
+                    "wavelength_nm": wavelength,
+                    "value": 1000.0 - index * 40.0 + wavelength,
+                }
+            )
+    data = pd.DataFrame(rows)
+    map_path = tmp_path / "groups.csv"
+    map_path.write_text(
+        "group name,plate number,well ranges\n"
+        "A1,P1,A1-B4\n",
+        encoding="utf-8",
+    )
+    concentrations = [value * 0.4 for value in range(16)]
+    assignments = load_group_map_assignments(
+        data,
+        map_path,
+        default_concentrations=concentrations,
+        default_measurement="Emission spectrum (Ex 472 nm)",
+        default_wavelength_nm=508.0,
+    )
+    assignment = assignments["A1"]
+    assert assignment.plate_id == "P1(Microplate End point)"
+    assert assignment.wells == wells
+    assert assignment.concentrations == concentrations
+    assert assignment.wavelength_nm == 508.0
+
+
+def test_group_map_rejects_overlapping_wells(tmp_path):
+    from folding_practical.project import load_group_map_assignments
+
+    wells = [f"A{column}" for column in range(1, 13)] + [f"B{column}" for column in range(1, 12)]
+    data = pd.DataFrame(
+        {
+            "plate_id": ["P1"] * len(wells),
+            "source_file": ["P1.csv"] * len(wells),
+            "well": wells,
+            "measurement": ["Fluorescence"] * len(wells),
+            "value": list(range(len(wells))),
+        }
+    )
+    map_path = tmp_path / "groups.csv"
+    map_path.write_text(
+        "group name,plate number,well ranges\n"
+        "Group 1,P1,A1-A12\n"
+        "Group 2,P1,A12-B11\n",
+        encoding="utf-8",
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="already assigned"):
+        load_group_map_assignments(
+            data,
+            map_path,
+            default_concentrations=[float(value) for value in range(12)],
+        )
