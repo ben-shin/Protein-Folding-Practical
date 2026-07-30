@@ -88,6 +88,7 @@ Python 3.9 or newer is recommended.
 
 ### Windows PowerShell
 ```bash
+git clone https://github.com/ben-shin/Protein-Folding-Practical.git
 conda env create -f .\environment.yml
 conda activate proteinfoldingpractical
 python -m pip install -e . --no-deps
@@ -95,6 +96,7 @@ python -m pip install -e . --no-deps
 ```
 ### Linux
 ```bash
+git clone https://github.com/ben-shin/Protein-Folding-Practical.git
 conda env create -f environment.yml
 conda activate proteinfoldingpractical
 python -m pip install -e . --no-deps
@@ -103,6 +105,7 @@ chmod +x launch_linux.sh
 ```
 ### macOS
 ```bash
+git clone https://github.com/ben-shin/Protein-Folding-Practical.git
 conda env create -f environment.yml
 conda activate proteinfoldingpractical
 python -m pip install -e . --no-deps
