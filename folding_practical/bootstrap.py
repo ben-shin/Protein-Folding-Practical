@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from queue import Empty, Queue
 from threading import Thread
 import tkinter as tk
@@ -26,6 +27,18 @@ def main() -> None:
     splash.resizable(False, False)
     splash.configure(background=BACKGROUND)
     _center(splash, 470, 230)
+
+    closing = False
+
+    def close_splash() -> None:
+        nonlocal closing
+        if closing:
+            return
+        closing = True
+        splash.destroy()
+        os._exit(0)
+
+    splash.protocol("WM_DELETE_WINDOW", close_splash)
 
     canvas = tk.Canvas(splash, background=BACKGROUND, highlightthickness=0, borderwidth=0)
     canvas.pack(fill="both", expand=True)
@@ -75,7 +88,10 @@ def main() -> None:
         app_module.main()
 
     splash.after(50, poll)
-    splash.mainloop()
+    try:
+        splash.mainloop()
+    except tk.TclError:
+        pass
 
 
 if __name__ == "__main__":

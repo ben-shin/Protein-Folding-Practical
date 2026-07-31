@@ -1,0 +1,160 @@
+Metadata-Version: 2.2
+Name: protein-folding-practical
+Version: 0.3.0
+Summary: GUI workflow for importing, organizing, fitting, and exporting GFP GuHCl denaturation data
+Requires-Python: <3.13,>=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: matplotlib<3.9,>=3.6.3
+Requires-Dist: numpy<2.0,>=1.23.5
+Requires-Dist: pandas<2.3,>=1.5.3
+Requires-Dist: scipy<1.14,>=1.9.3
+Provides-Extra: dev
+Requires-Dist: pytest<9,>=7.4; extra == "dev"
+
+# Protein-Folding-Practical
+For Imperial College London's Protein Folding Practical lead by Dr. Ernesto Cota.
+
+If you need any help, want to report a bug, or have suggestions on improving the software, email Dr. Cota or me at benwshin@gmail.com
+
+Python based GUI software to process GFP folding practical data from 96 well CLARIOstar plate reader exports.
+
+This is designed to make data management and analysis easier. It imports raw CSV files into a tidy table, lets the instructor assign wells and GuHCl concentrations to named practical groups, exports one clean CSV per group for distribution, and allows overlays of any number of groups. It can also fit descriptive and thermodynamics denaturation curves.
+
+## What this repo can do
+
+### 1. Import plate reader CSV files
+
+The importer should accept several common layouts:
+1. A long table containing a 'Well', 'Well ID', 'Position', or equivalent column
+2. An 8x12 plate grid with rows A-H
+3. A simple well vs value table.
+
+The read tables contain:
+1. 'plate_id'
+2. 'source_file'
+3. 'well'
+4. 'row'
+5. 'column'
+6. 'measurement'
+7. 'value'
+
+If the export contains a bunch of numerical readouts, the GUI exposes them through the **Signal** menu
+
+### 2. Assign wells to practical groups
+
+Wells can be selected directly on an interactive 96 well map in any order. A helper can also select consecutive wells from a chosen start well in either row major or column major order.
+
+Each named group stores:
+1. plate/file identity
+2. selected signal
+3. ordered wells
+4. ordered GuHCl concentrations
+
+The number and pattern of conditions have not been hardcoded. 12-16 conditions work naturally, but any group with at least 3 conditions can be stores. At least 8 observations are needed for the twostate thermodynamics fit.
+
+### 3. Export clean group files
+
+Each group is exported as '<group_name>.csv' with exactly these columns:
+```text
+GuHCl concentration (M)
+raw fluorescence values
+normalized fluorescence values
+```
+
+Normalization is within group min-max scaling:
+```text
+(value-min)/(max-min)
+```
+
+The raw imported table and the group assignment mapping can also be saved.
+
+### 4. Plot and fit any combination of groups
+
+The analysis panel can display one group, several groups, or all groups on the same graph. Matplotlib assigns a different color to each group.
+
+Available models:
+1. 4PL logistic
+2. 2 state linear extrapolation
+3. Auto compare
+4. Fit both
+
+The thermodynamics model uses:
+```text
+ΔG_unfold([D]) = ΔG°H2O - m[D]
+Cm = ΔG°H2O / m
+```
+
+and reports:
+1. ΔG°unfolding,H2O in kJ/mol and the corresponding ΔG°folding,H2O = -ΔG°unfolding,H2O
+2. m-value in kJ/mol/M
+3. Cm in M GuHCl
+4. covariance derived standard errors
+5. RMSE, R2, AIC, AICc, and BIC
+
+## Scientific interpretation
+
+A logistic curve alone does NOT provide thermodynamic folding free energies. The reported free energies only come from the 2 state LEM fit. The fitted quantity is ΔG°unfolding,H2O and reports the folding energy, which is just a negative. You can only interpret this when the experiment is close to equilibrium and GFP behaves as a reversible 2 state system in the conditions.
+
+## Installation
+
+Python 3.9 or newer is recommended.
+
+### Windows PowerShell
+```bash
+git clone https://github.com/ben-shin/Protein-Folding-Practical.git
+cd Protein-Folding-Practical
+conda env create -f .\environment.yml
+conda activate proteinfoldingpractical
+python -m pip install -e . --no-deps
+.\launch_windows.ps1
+```
+### Linux
+```bash
+git clone https://github.com/ben-shin/Protein-Folding-Practical.git
+cd Protein-Folding-Practical
+conda env create -f environment.yml
+conda activate proteinfoldingpractical
+python -m pip install -e . --no-deps
+chmod +x launch_linux.sh
+./launch_linux.sh
+```
+### macOS
+```bash
+git clone https://github.com/ben-shin/Protein-Folding-Practical.git
+cd Protein-Folding-Practical
+conda env create -f environment.yml
+conda activate proteinfoldingpractical
+python -m pip install -e . --no-deps
+chmod +x launch_macos.command
+./launch_macos.command
+```
+
+
+## Practical workflow
+
+1. Export the CLARIOstar data as CSV files.
+2. Open the application and load the CSV files.
+3. Select the plate and measurement signal.
+4. Click wells in the exact order matching increasing or decreasing GuHCl concentration, or just use the well helper.
+5. Enter or generate the concentration list
+6. Name and add the group.
+7. Repeat for all practical groups.
+8. Export the clean group CSVs.
+9. In the analysis tab, select any of the groups, choose **Auto compare** and run the fit.
+10. Check the graph, model comps, param uncertainty, and residual plausibility.
+
+## IMPORTANT
+As of now, the code expects a groups entire 16 conditions to be in a single plate. Make sure this happens. Or I guess I can try to make the data processing a bit more flexible in the future.
+
+The group map CSV is used to automatically assign wells and concentrations to groups. The CSV must have three columns with headers
+```text
+group name, plate number, well ranges
+```
+The plate number should match the name of the plate reading CSV file.
+
+If any of these conditions are not met, you will have to manually pick groups. So make sure the formatting is correct. Just reference the examples folder for what is good formatting.
+
+## Tests
+```bash
+python -m pytest -q
+```

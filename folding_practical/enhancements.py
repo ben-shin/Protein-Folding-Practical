@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import math
+import os
 import re
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
@@ -922,6 +923,8 @@ def _run_background(
     future = app._executor.submit(work)
 
     def poll() -> None:
+        if getattr(app, "_closing", False):
+            return
         if not app.winfo_exists():
             return
         if not future.done():
@@ -951,6 +954,7 @@ def install(app_module: Any) -> None:
     def enhanced_init(self: tk.Tk) -> None:
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="folding-practical")
         self._task_active = False
+        self._closing = False
         self.denaturation_style = _default_plot_style("denaturation")
         self.spectrum_style = _default_plot_style("spectrum")
         self._last_fit_bundles = None
@@ -965,8 +969,23 @@ def install(app_module: Any) -> None:
         _decorate_ui(self, app_module)
 
     def close_enhanced_app(self: tk.Tk) -> None:
-        self._executor.shutdown(wait=False, cancel_futures=True)
-        self.destroy()
+        if self._closing:
+            return
+        self._closing = True
+
+        try:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+
+        try:
+            self.quit()
+            self.destroy()
+        finally:
+            # ThreadPoolExecutor workers are non-daemon threads. A running
+            # NumPy/SciPy task can otherwise keep the detached process alive
+            # after the Tk window has closed.
+            os._exit(0)
 
     def load_files_async(self: tk.Tk) -> None:
         paths = filedialog.askopenfilenames(
