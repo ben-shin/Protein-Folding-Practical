@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import re
 from pathlib import Path
 from typing import Iterable, Optional, Union
@@ -41,6 +42,9 @@ _SPECTRUM_HEADER_RE = re.compile(
 _TIDY_COLUMNS = [
     "plate_id",
     "source_file",
+    "source_sha256",
+    "source_row",
+    "acquisition_id",
     "well",
     "row",
     "column",
@@ -51,30 +55,35 @@ _TIDY_COLUMNS = [
 ]
 
 
-def _read_rectangular_csv(path: Path) -> pd.DataFrame:
+def _read_rectangular_text(text: str, source_file: str) -> pd.DataFrame:
+    sample = text[:8192]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+        delimiter = dialect.delimiter
+    except csv.Error:
+        delimiter = ","
+
+    rows = list(csv.reader(text.splitlines(), delimiter=delimiter))
+    if not rows:
+        raise ValueError(f"{source_file} is empty")
+    width = max(len(row) for row in rows)
+    padded = [row + [""] * (width - len(row)) for row in rows]
+    return pd.DataFrame(padded)
+
+
+def _decode_csv_bytes(content: bytes, source_file: str) -> str:
     errors: list[str] = []
     for encoding in ("utf-8-sig", "utf-8", "latin-1"):
         try:
-            text = path.read_text(encoding=encoding)
+            return content.decode(encoding)
         except UnicodeDecodeError as exc:
             errors.append(str(exc))
-            continue
+    raise ValueError(f"Could not decode {source_file}: {'; '.join(errors)}")
 
-        sample = text[:8192]
-        try:
-            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
-            delimiter = dialect.delimiter
-        except csv.Error:
-            delimiter = ","
 
-        rows = list(csv.reader(text.splitlines(), delimiter=delimiter))
-        if not rows:
-            raise ValueError(f"{path.name} is empty")
-        width = max(len(row) for row in rows)
-        padded = [row + [""] * (width - len(row)) for row in rows]
-        return pd.DataFrame(padded)
-
-    raise ValueError(f"Could not decode {path.name}: {'; '.join(errors)}")
+def _source_name(value: str) -> str:
+    """Return a basename for either POSIX or browser-supplied Windows paths."""
+    return str(value).replace("\\", "/").rsplit("/", 1)[-1] or "plate.csv"
 
 
 def _clean_header(value: object, fallback: str) -> str:
@@ -95,6 +104,7 @@ def _canonical_long_table(
     *,
     source_file: str,
     plate_id: str,
+    acquisition_id: str,
     wells: pd.Series,
     measurement_frame: pd.DataFrame,
 ) -> pd.DataFrame:
@@ -112,13 +122,19 @@ def _canonical_long_table(
             measurement_frame[measurement].astype(str).str.strip().str.replace(",", ".", regex=False),
             errors="coerce",
         )
-        valid = well_series.notna() & values.notna()
+        # A missing instrument observation is still an observation.  Keep the
+        # row with a NaN value so callers can distinguish a blank read from a
+        # well that was never present in the acquisition.
+        valid = well_series.notna()
         if not valid.any():
             continue
         part = pd.DataFrame(
             {
                 "plate_id": plate_id,
                 "source_file": source_file,
+                "source_sha256": None,
+                "source_row": well_series.loc[valid].index.to_series().astype(int) + 1,
+                "acquisition_id": acquisition_id,
                 "well": well_series.loc[valid].astype(str),
                 "measurement": str(measurement),
                 "value": values.loc[valid].astype(float),
@@ -136,7 +152,7 @@ def _canonical_long_table(
     output["excitation_nm"] = np.nan
     output = output[_TIDY_COLUMNS]
     output = output.sort_values(
-        ["measurement", "well"],
+        ["acquisition_id", "measurement", "well"],
         key=lambda column: column.map(well_sort_key) if column.name == "well" else column,
     ).reset_index(drop=True)
     return output
@@ -157,6 +173,8 @@ def _parse_clariostar_emission_spectrum(
     """
 
     records: list[dict[str, object]] = []
+    acquisition_number = 1
+    wavelengths_in_acquisition: set[float] = set()
     for header_index in range(len(raw)):
         header_text = " ".join(str(value).strip() for value in raw.iloc[header_index] if str(value).strip())
         match = _SPECTRUM_HEADER_RE.search(header_text)
@@ -165,6 +183,14 @@ def _parse_clariostar_emission_spectrum(
 
         excitation = float(match.group("excitation"))
         emission = float(match.group("emission"))
+        # A wavelength repeated later in the file starts a new scan.  Adjacent
+        # wavelength blocks are one acquisition, rather than independent
+        # replicates, so a complete spectrum keeps one acquisition ID.
+        if emission in wavelengths_in_acquisition:
+            acquisition_number += 1
+            wavelengths_in_acquisition.clear()
+        wavelengths_in_acquisition.add(emission)
+        acquisition_id = f"spectrum_{acquisition_number}"
         measurement = f"Emission spectrum (Ex {excitation:g} nm)"
 
         # the column-number row is usually right after the heading.
@@ -210,24 +236,22 @@ def _parse_clariostar_emission_spectrum(
                 .str.replace(",", ".", regex=False),
                 errors="coerce",
             )
-            if int(numeric_values.notna().sum()) < 3:
-                continue
-
             found_rows += 1
             for column_number, value in zip(column_numbers, numeric_values):
-                if pd.isna(value):
-                    continue
                 records.append(
                     {
                         "plate_id": plate_id,
                         "source_file": source_file,
+                        "source_sha256": None,
+                        "source_row": row_index + 1,
+                        "acquisition_id": acquisition_id,
                         "well": f"{row_letter}{column_number}",
                         "row": row_letter,
                         "column": int(column_number),
                         "measurement": measurement,
                         "wavelength_nm": emission,
                         "excitation_nm": excitation,
-                        "value": float(value),
+                        "value": float(value) if pd.notna(value) else np.nan,
                     }
                 )
 
@@ -236,16 +260,21 @@ def _parse_clariostar_emission_spectrum(
 
     output = pd.DataFrame.from_records(records, columns=_TIDY_COLUMNS)
     output = output.drop_duplicates(
-        subset=["plate_id", "measurement", "wavelength_nm", "well"],
+        subset=["plate_id", "acquisition_id", "measurement", "wavelength_nm", "well"],
         keep="last",
     )
     output["_well_order"] = output["well"].map(well_sort_key)
-    output = output.sort_values(["measurement", "wavelength_nm", "_well_order"]).drop(columns="_well_order")
+    output = output.sort_values(
+        ["acquisition_id", "measurement", "wavelength_nm", "_well_order"]
+    ).drop(columns="_well_order")
     return output.reset_index(drop=True)
 
 
 def _parse_long_format(raw: pd.DataFrame, source_file: str, plate_id: str) -> Optional[pd.DataFrame]:
-    for header_index in range(min(len(raw), 60)):
+    sections: list[pd.DataFrame] = []
+    acquisition_number = 0
+    # Repeated 96-well reads can place later headers well beyond row 60.
+    for header_index in range(len(raw)):
         header_values = [str(value).strip() for value in raw.iloc[header_index].tolist()]
         normalized = [re.sub(r"\s+", " ", value.lower()) for value in header_values]
         well_positions = [index for index, value in enumerate(normalized) if value in _WELL_HEADER_ALIASES]
@@ -281,50 +310,88 @@ def _parse_long_format(raw: pd.DataFrame, source_file: str, plate_id: str) -> Op
                 measurement_columns.append(column_name)
 
         if measurement_columns:
-            parsed = _canonical_long_table(
-                source_file=source_file,
-                plate_id=plate_id,
-                wells=wells,
-                measurement_frame=body[measurement_columns],
-            )
-            if not parsed.empty:
-                return parsed
-    return None
+            # Some instruments repeat the well sequence under one header rather
+            # than writing a fresh header for each read.  Split at the first
+            # repeated canonical well so selecting an acquisition never silently
+            # chooses one of two rows carrying the same acquisition ID.
+            segment_starts = [0]
+            seen_wells: set[str] = set()
+            for position, value in enumerate(wells):
+                try:
+                    canonical_well = normalize_well(str(value))
+                except ValueError:
+                    continue
+                if canonical_well in seen_wells:
+                    segment_starts.append(position)
+                    seen_wells.clear()
+                seen_wells.add(canonical_well)
+            segment_starts.append(len(body))
+
+            for start, end in zip(segment_starts, segment_starts[1:]):
+                segment = body.iloc[start:end]
+                if segment.empty:
+                    continue
+                acquisition_number += 1
+                parsed = _canonical_long_table(
+                    source_file=source_file,
+                    plate_id=plate_id,
+                    acquisition_id=f"long_{acquisition_number}",
+                    wells=segment.iloc[:, well_column],
+                    measurement_frame=segment[measurement_columns],
+                )
+                if not parsed.empty:
+                    sections.append(parsed)
+    if not sections:
+        return None
+    return pd.concat(sections, ignore_index=True)[_TIDY_COLUMNS]
 
 
 def _parse_well_value_rows(raw: pd.DataFrame, source_file: str, plate_id: str) -> Optional[pd.DataFrame]:
-    best_records: list[tuple[str, float]] = []
+    best_records: list[tuple[str, float, int, str]] = []
     for well_column in range(raw.shape[1]):
-        records: list[tuple[str, float]] = []
-        for _, row in raw.iterrows():
+        records: list[tuple[str, float, int, str]] = []
+        acquisition_number = 1
+        wells_in_acquisition: set[str] = set()
+        for raw_index, row in raw.iterrows():
             try:
                 well = normalize_well(str(row.iloc[well_column]))
             except ValueError:
                 continue
+            if well in wells_in_acquisition:
+                acquisition_number += 1
+                wells_in_acquisition.clear()
+            wells_in_acquisition.add(well)
             numeric_candidates = pd.to_numeric(
                 row.iloc[well_column + 1 :].astype(str).str.replace(",", ".", regex=False),
                 errors="coerce",
             ).dropna()
-            if numeric_candidates.empty:
-                continue
-            records.append((well, float(numeric_candidates.iloc[-1])))
+            value = float(numeric_candidates.iloc[-1]) if not numeric_candidates.empty else np.nan
+            records.append((well, value, int(raw_index) + 1, f"rows_{acquisition_number}"))
         if len(records) > len(best_records):
             best_records = records
 
     if len(best_records) < 3:
         return None
-    frame = pd.DataFrame(best_records, columns=["well", "Signal"])
-    return _canonical_long_table(
-        source_file=source_file,
-        plate_id=plate_id,
-        wells=frame["well"],
-        measurement_frame=frame[["Signal"]],
+    frame = pd.DataFrame(
+        best_records,
+        columns=["well", "value", "source_row", "acquisition_id"],
     )
+    frame["plate_id"] = plate_id
+    frame["source_file"] = source_file
+    frame["source_sha256"] = None
+    frame["row"] = frame["well"].str[0]
+    frame["column"] = frame["well"].str[1:].astype(int)
+    frame["measurement"] = "Signal"
+    frame["wavelength_nm"] = np.nan
+    frame["excitation_nm"] = np.nan
+    return frame[_TIDY_COLUMNS]
 
 
 def _parse_plate_grid(raw: pd.DataFrame, source_file: str, plate_id: str) -> Optional[pd.DataFrame]:
-    records: list[tuple[str, float]] = []
-    for _, row in raw.iterrows():
+    records: list[dict[str, object]] = []
+    acquisition_number = 1
+    rows_in_acquisition: set[str] = set()
+    for raw_index, row in raw.iterrows():
         row_values = [str(value).strip() for value in row.tolist()]
         row_label_index = next(
             (
@@ -337,72 +404,204 @@ def _parse_plate_grid(raw: pd.DataFrame, source_file: str, plate_id: str) -> Opt
         if row_label_index is None:
             continue
 
-        numeric = pd.to_numeric(
-            pd.Series(row_values[row_label_index + 1 : 13 + row_label_index]).str.replace(",", ".", regex=False),
-            errors="coerce",
-        )
-        valid_count = int(numeric.notna().sum())
-        if valid_count < 3:
-            continue
         row_letter = row_values[row_label_index].upper()
-        for index, value in enumerate(numeric, start=1):
-            if pd.notna(value) and index <= 12:
-                records.append((f"{row_letter}{index}", float(value)))
+        if row_letter in rows_in_acquisition:
+            acquisition_number += 1
+            rows_in_acquisition.clear()
+        rows_in_acquisition.add(row_letter)
+
+        column_positions: list[tuple[int, int]] = []
+        # Prefer the explicit plate-column header immediately above the row;
+        # this retains an empty interior cell without inventing trailing wells.
+        for candidate_index in range(raw_index - 1, max(-1, raw_index - 5), -1):
+            candidate = [str(value).strip() for value in raw.iloc[candidate_index].tolist()]
+            if any(len(value) == 1 and value.upper() in PLATE_ROWS for value in candidate):
+                continue
+            parsed: list[tuple[int, int]] = []
+            for position in range(row_label_index + 1, len(candidate)):
+                try:
+                    column_number = int(float(candidate[position]))
+                except (TypeError, ValueError):
+                    continue
+                if 1 <= column_number <= 12:
+                    parsed.append((position, column_number))
+            if len(parsed) >= 3:
+                column_positions = parsed[:12]
+                break
+
+        if not column_positions:
+            nonempty_positions = [
+                position
+                for position in range(row_label_index + 1, len(row_values))
+                if row_values[position]
+            ]
+            if len(nonempty_positions) < 3:
+                continue
+            last_position = min(max(nonempty_positions), row_label_index + 12)
+            column_positions = [
+                (position, position - row_label_index)
+                for position in range(row_label_index + 1, last_position + 1)
+            ]
+
+        for position, column_number in column_positions:
+            value = pd.to_numeric(
+                pd.Series([row_values[position]]).str.replace(",", ".", regex=False),
+                errors="coerce",
+            ).iloc[0]
+            records.append(
+                {
+                    "plate_id": plate_id,
+                    "source_file": source_file,
+                    "source_sha256": None,
+                    "source_row": int(raw_index) + 1,
+                    "acquisition_id": f"grid_{acquisition_number}",
+                    "well": f"{row_letter}{column_number}",
+                    "row": row_letter,
+                    "column": column_number,
+                    "measurement": "Signal",
+                    "wavelength_nm": np.nan,
+                    "excitation_nm": np.nan,
+                    "value": float(value) if pd.notna(value) else np.nan,
+                }
+            )
 
     if len(records) < 3:
         return None
-    frame = pd.DataFrame(records, columns=["well", "Signal"])
-    frame = frame.drop_duplicates(subset="well", keep="last")
-    return _canonical_long_table(
-        source_file=source_file,
-        plate_id=plate_id,
-        wells=frame["well"],
-        measurement_frame=frame[["Signal"]],
-    )
+    return pd.DataFrame.from_records(records, columns=_TIDY_COLUMNS)
 
 
-def load_plate_csv(path: Union[str, Path], plate_id: Optional[str] = None) -> pd.DataFrame:
-    """Load one CSV and return tidy measurement data.
-
-    The returned table has one row per well and measurement, with columns
-    ``plate_id``, ``source_file``, ``well``, ``row``, ``column``,
-    ``measurement``, and ``value``.
-    """
-    csv_path = Path(path)
-    if not csv_path.exists():
-        raise FileNotFoundError(csv_path)
-    plate_name = plate_id or csv_path.stem
-    raw = _read_rectangular_csv(csv_path)
-
+def _parse_plate_table(
+    raw: pd.DataFrame,
+    *,
+    source_file: str,
+    plate_id: str,
+    source_sha256: str,
+) -> pd.DataFrame:
     for parser in (
         _parse_clariostar_emission_spectrum,
         _parse_long_format,
         _parse_well_value_rows,
         _parse_plate_grid,
     ):
-        parsed = parser(raw, csv_path.name, plate_name)
+        parsed = parser(raw, source_file, plate_id)
         if parsed is not None and not parsed.empty:
-            return parsed
+            parsed = parsed.copy()
+            parsed["source_sha256"] = source_sha256
+            return parsed[_TIDY_COLUMNS]
 
     raise ValueError(
-        f"Could not identify well-level numeric data in {csv_path.name}. "
+        f"Could not identify well-level numeric data in {source_file}. "
         "Use a CLARIOstar long export with a Well column, a plate-grid export, "
         "or a two-column Well/Value file."
     )
 
 
-def load_plate_csvs(paths: Iterable[Union[str, Path]]) -> pd.DataFrame:
-    """Load multiple CSVs, assigning unique plate IDs derived from file names."""
+def load_plate_text(
+    text: str,
+    *,
+    source_file: str,
+    plate_id: Optional[str] = None,
+) -> pd.DataFrame:
+    """Load CSV text directly, preserving a content fingerprint for provenance."""
+    if not isinstance(text, str):
+        raise TypeError("text must be a string")
+    name = _source_name(source_file)
+    content = text.encode("utf-8")
+    raw = _read_rectangular_text(text, name)
+    return _parse_plate_table(
+        raw,
+        source_file=name,
+        plate_id=plate_id or Path(name).stem,
+        source_sha256=hashlib.sha256(content).hexdigest(),
+    )
+
+
+def load_plate_bytes(
+    content: bytes,
+    *,
+    source_file: str,
+    plate_id: Optional[str] = None,
+) -> pd.DataFrame:
+    """Load uploaded CSV bytes without first writing a temporary file."""
+    if not isinstance(content, bytes):
+        raise TypeError("content must be bytes")
+    name = _source_name(source_file)
+    text = _decode_csv_bytes(content, name)
+    raw = _read_rectangular_text(text, name)
+    return _parse_plate_table(
+        raw,
+        source_file=name,
+        plate_id=plate_id or Path(name).stem,
+        source_sha256=hashlib.sha256(content).hexdigest(),
+    )
+
+
+def load_plate_csv(path: Union[str, Path], plate_id: Optional[str] = None) -> pd.DataFrame:
+    """Load one CSV path and return tidy, acquisition-aware measurement data."""
+    csv_path = Path(path)
+    if not csv_path.exists():
+        raise FileNotFoundError(csv_path)
+    return load_plate_bytes(csv_path.read_bytes(), source_file=csv_path.name, plate_id=plate_id)
+
+
+def _unique_plate_id(base: str, used_casefold: set[str]) -> str:
+    candidate = base
+    suffix = 2
+    while candidate.casefold() in used_casefold:
+        candidate = f"{base}_{suffix}"
+        suffix += 1
+    used_casefold.add(candidate.casefold())
+    return candidate
+
+
+def load_plate_csvs(
+    paths: Iterable[Union[str, Path]],
+    *,
+    duplicate_policy: str = "reject",
+    existing_data: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """Load paths with globally unique IDs and explicit duplicate handling.
+
+    ``duplicate_policy`` is one of ``"reject"`` (default), ``"skip"``, or
+    ``"allow"``.  Duplicates are identified by SHA-256 content rather than by
+    filename, which also catches the same upload under a different name.
+    Pass the already-loaded tidy table as ``existing_data`` to enforce the
+    same hash and plate-ID rules across incremental upload batches.
+    """
+    if duplicate_policy not in {"reject", "skip", "allow"}:
+        raise ValueError("duplicate_policy must be 'reject', 'skip', or 'allow'")
     frames: list[pd.DataFrame] = []
-    used_ids: dict[str, int] = {}
+    used_ids: set[str] = set()
+    seen_hashes: dict[str, str] = {}
+    if existing_data is not None and not existing_data.empty:
+        if "plate_id" in existing_data.columns:
+            used_ids.update(existing_data["plate_id"].dropna().astype(str).str.casefold())
+        if "source_sha256" in existing_data.columns:
+            source_names = (
+                existing_data["source_file"].astype(str)
+                if "source_file" in existing_data.columns
+                else pd.Series("existing data", index=existing_data.index)
+            )
+            for fingerprint, source in zip(existing_data["source_sha256"], source_names):
+                if pd.notna(fingerprint) and str(fingerprint).strip():
+                    seen_hashes.setdefault(str(fingerprint), str(source))
     for path in paths:
         csv_path = Path(path)
-        base = csv_path.stem
-        used_ids[base] = used_ids.get(base, 0) + 1
-        plate_id = base if used_ids[base] == 1 else f"{base}_{used_ids[base]}"
-        frames.append(load_plate_csv(csv_path, plate_id=plate_id))
+        if not csv_path.exists():
+            raise FileNotFoundError(csv_path)
+        content = csv_path.read_bytes()
+        fingerprint = hashlib.sha256(content).hexdigest()
+        first_source = seen_hashes.get(fingerprint)
+        if first_source is not None and duplicate_policy != "allow":
+            if duplicate_policy == "skip":
+                continue
+            raise ValueError(
+                f"Duplicate plate upload: {csv_path.name!r} has the same SHA-256 content "
+                f"as {first_source!r}; pass duplicate_policy='skip' or 'allow' explicitly"
+            )
+        seen_hashes.setdefault(fingerprint, csv_path.name)
+        plate_id = _unique_plate_id(csv_path.stem, used_ids)
+        frames.append(load_plate_bytes(content, source_file=csv_path.name, plate_id=plate_id))
     if not frames:
-        return pd.DataFrame(
-            columns=_TIDY_COLUMNS
-        )
+        return pd.DataFrame(columns=_TIDY_COLUMNS)
     return pd.concat(frames, ignore_index=True)

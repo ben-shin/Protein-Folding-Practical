@@ -26,3 +26,12 @@ def test_expand_hyphenated_well_range():
         "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8",
         "A9", "A10", "A11", "A12", "B1", "B2", "B3", "B4",
     ]
+
+
+def test_consecutive_wells_can_clamp_at_the_end_of_the_plate():
+    assert consecutive_wells("H10", 16, "row-major", clamp=True) == ["H10", "H11", "H12"]
+
+
+def test_consecutive_wells_still_raises_without_clamping():
+    with pytest.raises(ValueError, match="past the end"):
+        consecutive_wells("H10", 16, "row-major")

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import math
 import os
 import re
@@ -11,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Optional
 import tkinter as tk
-from tkinter import colorchooser, filedialog, font as tkfont, messagebox, ttk
+from tkinter import colorchooser, font as tkfont, messagebox, ttk
 
 
 BACKGROUND = "#edf2f8"
@@ -29,6 +28,7 @@ DARK_PLOT = "#101828"
 
 PRIMARY_ACTIONS = {
     "Load CSV files",
+    "Batch export",
     "Add or replace group",
     "Plot and fit selected groups",
     "Plot selected well spectra",
@@ -38,6 +38,7 @@ PRIMARY_ACTIONS = {
 BUSY_ACTIONS = {
     "Load CSV files",
     "Load group map CSV",
+    "Batch export",
     "Plot and fit selected groups",
     "Plot selected well spectra",
 }
@@ -153,31 +154,11 @@ def _parse_concentration_order(text: str, expected_count: int) -> list[float]:
 
 
 def _inspect_group_map(path: str, expand_well_spec: Callable[[str], list[str]]) -> dict[str, Any]:
-    with Path(path).open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
-        columns = list(reader.fieldnames or [])
-        rows = list(reader)
+    """Summarise a group map. Kept as a thin wrapper so the GUI, the batch
+    exporter, and the tests all read the map the same way."""
+    from .project import inspect_group_map
 
-    if not rows:
-        raise ValueError("The group map is empty")
-
-    wells_column = _find_alias(columns, "wells")
-    if wells_column is None:
-        raise ValueError("The group map is missing the well ranges column")
-
-    concentration_column = _find_alias(columns, "concentrations")
-    counts = [len(expand_well_spec(str(row.get(wells_column, "")))) for row in rows]
-    missing_concentrations = concentration_column is None or any(
-        not str(row.get(concentration_column, "")).strip() for row in rows
-    )
-    unique_counts = sorted(set(counts))
-    return {
-        "group_count": len(rows),
-        "counts": counts,
-        "same_count": len(unique_counts) == 1,
-        "well_count": unique_counts[0] if len(unique_counts) == 1 else None,
-        "missing_concentrations": missing_concentrations,
-    }
+    return inspect_group_map(path)
 
 
 def _default_plot_style(kind: str) -> dict[str, Any]:
@@ -967,6 +948,9 @@ def install(app_module: Any) -> None:
         _configure_theme(self)
         original_build_ui(self)
         _decorate_ui(self, app_module)
+        # _decorate_ui adds more buttons to the side panels, so pick those up.
+        self.analysis_controls.bind_mouse_wheel()
+        self.spectrum_controls.bind_mouse_wheel()
 
     def close_enhanced_app(self: tk.Tk) -> None:
         if self._closing:
@@ -988,17 +972,15 @@ def install(app_module: Any) -> None:
             os._exit(0)
 
     def load_files_async(self: tk.Tk) -> None:
-        paths = filedialog.askopenfilenames(
-            title="Select CLARIOstar CSV files",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-        )
+        paths = self.ask_open_files("Select plate reader CSV files")
         if not paths:
             return
 
         existing_plate_ids = set(self.data["plate_id"].astype(str)) if not self.data.empty else set()
+        existing_data = self.data.copy()
 
         def work():
-            imported = app_module.load_plate_csvs(paths)
+            imported = app_module.load_plate_csvs(paths, existing_data=existing_data)
             rename_map = {}
             reserved = set(existing_plate_ids)
             for imported_plate_id in dict.fromkeys(imported["plate_id"].astype(str)):
@@ -1028,10 +1010,7 @@ def install(app_module: Any) -> None:
         _run_background(self, work, finish, "Import failed", f"Loading {len(paths)} plate file(s)...")
 
     def load_group_map_with_prompt(self: tk.Tk) -> None:
-        path = filedialog.askopenfilename(
-            title="Select group map CSV",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-        )
+        path = self.ask_open_file("Select group map CSV")
         if not path:
             return
         if self.data.empty:
@@ -1067,23 +1046,91 @@ def install(app_module: Any) -> None:
             existing = dict(self.assignments)
 
             def work():
-                return app_module.load_group_map_assignments(
+                failures: dict[str, str] = {}
+                imported = app_module.load_group_map_assignments(
                     data,
                     path,
                     default_concentrations=default_concentrations,
                     default_measurement=default_measurement,
                     default_wavelength_nm=wavelength,
                     existing_assignments=existing,
+                    failures=failures,
                 )
+                return imported, failures
 
-            def finish(imported):
+            def finish(outcome):
+                imported, failures = outcome
                 self.assignments.update(imported)
                 self.refresh_group_views()
-                self.status_var.set(f"Loaded {len(imported)} practical group(s) from {Path(path).name}.")
+                self.report_group_map_result(imported, failures, path)
 
             _run_background(self, work, finish, "Cannot load group map", f"Loading {Path(path).name}...")
         except Exception as exc:
             messagebox.showerror("Cannot load group map", str(exc))
+
+    def batch_export_wizard_async(self: tk.Tk) -> None:
+        """Plate files plus a group map in, one CSV set per group out."""
+        plate_paths = self.ask_open_files("Step 1 of 3 — select every plate reader CSV")
+        if not plate_paths:
+            return
+        group_map_path = self.ask_open_file("Step 2 of 3 — select the group map CSV")
+        if not group_map_path:
+            return
+
+        try:
+            info = app_module.inspect_group_map(group_map_path)
+        except Exception as exc:
+            messagebox.showerror("Cannot read the group map", str(exc))
+            return
+
+        concentrations: list[float] = []
+        if info["missing_concentrations"]:
+            if not info["same_count"]:
+                messagebox.showerror(
+                    "Cannot read the group map",
+                    "The groups do not all have the same number of wells. Add a concentrations "
+                    "column to the map so each group carries its own series.",
+                )
+                return
+            count = int(info["well_count"])
+            try:
+                default_values = self._parse_concentrations()
+            except Exception:
+                default_values = []
+            if len(default_values) != count:
+                default_values = app_module.np.linspace(
+                    float(self.conc_start_var.get()), float(self.conc_stop_var.get()), count
+                ).tolist()
+            chosen = _ask_concentration_order(self, int(info["group_count"]), count, default_values)
+            if chosen is None:
+                return
+            concentrations = chosen
+            self.concentration_var.set(", ".join(f"{value:g}" for value in chosen))
+
+        directory = self.ask_directory("Step 3 of 3 — choose the output folder")
+        if not directory:
+            return
+
+        start = float(self.conc_start_var.get())
+        stop = float(self.conc_stop_var.get())
+
+        def work():
+            return app_module.run_batch_export(
+                plate_paths,
+                group_map_path,
+                directory,
+                concentrations=concentrations,
+                start=start,
+                stop=stop,
+            )
+
+        _run_background(
+            self,
+            work,
+            self.adopt_batch_result,
+            "Batch export failed",
+            f"Exporting {len(plate_paths)} plate(s) to {Path(directory).name}...",
+        )
 
     def render_denaturation(self: tk.Tk) -> None:
         bundles = self._last_fit_bundles
@@ -1201,6 +1248,9 @@ def install(app_module: Any) -> None:
                                 "model": result.model_name,
                                 "best": bool(is_best),
                                 "success": result.success,
+                                "interpretation_status": result.interpretation_status,
+                                "warnings": "; ".join(result.warnings),
+                                "diagnostics": result.diagnostics,
                                 "message": result.message,
                                 **result.parameters,
                                 **{f"se_{key}": value for key, value in result.standard_errors.items()},
@@ -1329,6 +1379,7 @@ def install(app_module: Any) -> None:
     app_class._close_enhanced_app = close_enhanced_app
     app_class.load_files = load_files_async
     app_class.load_group_map = load_group_map_with_prompt
+    app_class.batch_export_wizard = batch_export_wizard_async
     app_class.plot_and_fit = plot_and_fit_async
     app_class.plot_spectra = plot_spectra_async
     app_class._render_denaturation = render_denaturation

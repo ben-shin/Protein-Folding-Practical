@@ -1,0 +1,11 @@
+{
+  "name": "protein-folding-practical-browser",
+  "version": "0.6.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:browser": "playwright test",
+    "build": "python3 scripts/build_web.py"
+  },
+  "devDependencies": { "@playwright/test": "1.63.0" }
+}

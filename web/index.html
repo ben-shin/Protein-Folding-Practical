@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Explore GFP chemical denaturation. Import your practical data, fit a shared Python model, and examine the evidence in your browser.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'">
+  <title>Protein Folding Practical · GFP denaturation</title>
+  <link rel="icon" href="./favicon.svg"><link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+<a class="skip" href="#workspace">Skip to analysis</a>
+<header class="topbar"><a class="brand" href="./"><img src="./favicon.svg" width="32" height="32" alt=""><span>Protein folding<span class="brand-sub">THE PRACTICAL</span></span></a><nav aria-label="Main navigation"><a href="#workspace">Analysis</a><a href="#instructor">Instructor</a><a href="https://github.com/ben-shin/Protein-Folding-Practical" target="_blank" rel="noopener noreferrer">Source ↗</a></nav><span class="local-badge">Runs on your device</span></header>
+<main>
+  <section class="hero">
+    <div><p class="eyebrow">GFP · CHEMICAL DENATURATION</p><h1>From fluorescence<br>to folding.</h1><p class="intro">Follow the transition. Question the fit.<br>Explore what your measurements can tell you about protein stability.</p></div>
+    <div class="hero-note"><span class="note-number">01 — 03</span><p>A guided analysis for the<br>protein folding practical.</p><div class="small">Import your group's data, examine a model,<br>and take the evidence into your report.</div></div>
+  </section>
+  <div class="runtime"><span id="runtime-dot" class="status-dot"></span><span id="runtime-status" role="status" aria-live="polite">Start an example or open a file to load Python.</span><button id="cancel" class="text-button" hidden>Cancel / restart calculation</button></div>
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+  <div id="error" class="error" role="alert" hidden></div>
+  <div id="recovery" class="recovery" hidden><span>A previous session is saved in this browser.</span><button id="recover">Recover session</button><button id="discard" class="text-button">Discard saved session</button></div>
+  <section id="workspace" class="workspace">
+    <aside class="controls">
+      <section class="card"><div class="section-label"><span class="step">1</span><h2>Start with your data</h2></div><p class="muted">Use a group CSV or a prepared practical project.</p>
+        <button id="example" class="primary wide">Try example data <span aria-hidden="true">↗</span></button>
+        <div class="file-actions"><label class="button" for="series-file">Open my group CSV</label><input id="series-file" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" class="file-input"><label class="button" for="project-file">Open prepared project</label><input id="project-file" type="file" accept=".json,application/json" class="file-input"></div>
+        <p class="small muted">CSV: concentration in M and raw fluorescence. Existing three-column group exports work directly.</p>
+        <label for="group-picker" id="group-picker-label" hidden>Prepared group</label><select id="group-picker" hidden></select>
+        <div id="source-summary" class="source-summary">No measurements loaded</div>
+      </section>
+      <section class="card"><div class="section-label"><span class="step">2</span><h2>Set up the analysis</h2></div>
+        <label for="group-name">Group / sample name</label><input id="group-name" placeholder="e.g. Group 4" data-project-field disabled maxlength="100">
+        <div class="two-fields"><div><label for="temperature">Temperature (K)</label><input id="temperature" type="number" min="260" max="330" step="0.01" value="298.15" data-project-field disabled></div><div><label for="visual-midpoint">Your midpoint estimate (M)</label><input id="visual-midpoint" type="number" min="0" step="0.1" placeholder="Inspect the curve" data-project-field disabled></div></div>
+        <label for="model">Analysis model</label><select id="model" data-project-field disabled><option value="two_state">Two-state model · linear baselines</option><option value="logistic">Logistic · descriptive transition</option><option value="compare">Advanced · compare both models</option></select>
+        <p class="small muted">Fits use raw fluorescence, or explicitly blank-corrected fluorescence. Relative scaling is not fraction folded.</p>
+        <button id="fit" class="primary wide" disabled>Fit and examine evidence <span aria-hidden="true">→</span></button>
+        <p id="fit-state" class="small muted">Load data to begin.</p>
+      </section>
+      <section class="card"><div class="section-label"><span class="step">3</span><h2>Interpret &amp; save</h2></div>
+        <label for="notes">What does the evidence support?</label><textarea id="notes" rows="5" placeholder="Are both baselines covered? Is there structure in the residuals? What assumptions would need experimental evidence?" data-project-field disabled></textarea>
+        <div class="export-grid"><button id="save-project" disabled>Save project</button><button id="save-csv" disabled>Download CSV</button><button id="save-report" disabled>Download report</button><button id="save-figure" disabled>Download figure</button></div>
+        <p id="autosave-state" class="small muted">Autosave stores this session on this browser.</p><button id="reset" class="text-button">Reset workspace</button>
+      </section>
+    </aside>
+    <div class="analysis-column">
+      <section class="card plot-card"><div class="plot-heading"><div><p class="eyebrow">OBSERVE THE TRANSITION</p><h2>Denaturation curve</h2></div><div class="legend"><span><i class="point-symbol"></i>Observed</span><span><i class="line-symbol"></i>Fitted</span><span><i class="excluded-symbol">×</i>Excluded</span></div></div>
+        <div id="plot" class="plot" role="img" aria-label="Denaturation curve: load data to plot observations"><div class="empty-plot"><span class="empty-glyph">↗</span><h3>Your measurements, in context.</h3><p>Open a group file or try the synthetic example<br>to see fluorescence across the denaturant series.</p></div></div>
+        <div class="residual-heading"><h3>Residuals</h3><span class="small muted">Observed − predicted</span></div><div id="residual-plot" class="residual-plot" role="img" aria-label="Residuals are shown after fitting"><p class="muted small">Fit a model to inspect the residuals.</p></div>
+        <div class="plot-footnote">GuHCl concentration is in mol L⁻¹ (M). Points retain their individual observation identities, including repeated concentrations.</div>
+      </section>
+      <section id="results" class="card" aria-live="polite"><div class="section-label"><h2>What the fit can tell you</h2><span id="result-badge" class="badge">Awaiting data</span></div><div id="result-content"><p class="muted">A curve is a model of the measurements. A completed calculation alone cannot establish equilibrium, reversibility, or a two-state mechanism.</p></div></section>
+      <details class="card" id="preview-details"><summary>Measurements &amp; exclusions <span id="row-count" class="muted"></span></summary><p id="measurement-summary" class="small"></p><p class="small muted">Every exclusion needs a reason. Missing values remain visible. Editing data or settings clears the current fit.</p><div class="table-wrap"><table id="preview"><thead><tr><th scope="col">Use</th><th scope="col">Source row / well</th><th scope="col">GuHCl (M)</th><th scope="col">Signal</th><th scope="col">Exclusion reason</th></tr></thead><tbody></tbody></table></div></details>
+      <details class="card"><summary>Model assumptions &amp; interpretation</summary><div class="prose"><p>The two-state model uses linear folded and unfolded baselines with ΔG<sub>unfold</sub>([D]) = ΔG°<sub>H₂O</sub> − m[D] and C<sub>m</sub> = ΔG°<sub>H₂O</sub>/m. Thermodynamic interpretation requires independent evidence of equilibration and reversible two-state behaviour.</p><p>The logistic model describes a transition with constant baselines. Its mathematical relationship to the two-state curve does not establish a physical mechanism.</p><p>Standard errors come from local covariance and are approximate. Poor concentration coverage or identifiability cannot be repaired by a small fitting error. Multiple initial guesses, baseline coverage, parameter bounds and covariance diagnostics help identify limitations.</p><p>AIC, AICc and BIC assume independent Gaussian errors with one common variance estimated from the data. Parameter counts include this variance. Comparisons use identical retained observations and the same response. Undefined AICc is shown as unavailable.</p></div></details>
+    </div>
+  </section>
+  <details id="instructor" class="card instructor"><summary><span class="eyebrow">INSTRUCTOR WORKSPACE</span> Prepare a practical from plate data</summary><p class="muted">Inspect the selected measurement, assign ordered wells to concentrations, and save prepared groups for students.</p>
+    <div class="instructor-layout"><div>
+      <div class="actions"><label class="button" for="plate-file">Open plate CSV</label><input id="plate-file" type="file" accept=".csv,text/csv" class="file-input"><button id="example-plate">Try synthetic plate</button></div><p id="plate-source" class="small muted">No plate loaded.</p>
+      <label for="plate-id">Plate</label><select id="plate-id"></select><label for="measurement">Signal / excitation</label><select id="measurement"></select><label for="wavelength">Emission wavelength (nm)</label><select id="wavelength"></select>
+      <label for="repeat-policy">Repeated acquisition policy</label><select id="repeat-policy"><option value="reject">Reject ambiguous repeated reads</option><option value="select">Select one acquisition</option><option value="mean">Average declared technical replicates</option></select>
+      <label for="acquisition">Acquisition to select</label><select id="acquisition"></select><label for="replicate-label">Replicate declaration (required for averaging)</label><input id="replicate-label" placeholder="e.g. Three technical reads at equilibrium">
+    </div><div><div id="plate-map" class="plate-map" role="group" aria-label="96-well plate: select wells in concentration order"></div>
+      <label for="assigned-wells">Ordered wells (comma separated)</label><input id="assigned-wells" placeholder="A1, A2, A3, …">
+      <label for="concentrations">Matching GuHCl concentrations (M, comma separated)</label><textarea id="concentrations" rows="2" placeholder="0, 0.4, 0.8, …"></textarea>
+      <div class="two-fields"><div><label for="prepared-name">Prepared group name</label><input id="prepared-name" value="Group 1" maxlength="100"></div><div><label for="blank-wells">Blank wells (optional)</label><input id="blank-wells" placeholder="H11, H12"></div></div>
+      <label class="check-label"><input id="blank-enabled" type="checkbox"> Subtract the mean of the selected blank wells</label><button id="prepare" class="primary" disabled>Prepare group &amp; inspect →</button>
+    </div></div>
+    <details id="spectrum-preview" hidden><summary>Inspect the emission spectrum for the first selected well</summary><p id="spectrum-caption" class="small muted"></p><div id="spectrum-plot"></div></details>
+    <div class="practical-export"><p><span id="prepared-count">0</span> prepared groups in this session</p><label class="check-label"><input id="lock-settings" type="checkbox"> Lock temperature and model in the student interface</label><button id="save-practical" disabled>Save practical configuration</button><p class="small muted">Locks guide the activity; they are editable project settings, not security. Keep student identifiers and answer keys out of public repositories.</p></div>
+  </details>
+  <footer><div><strong>Protein Folding Practical</strong><p>For the Imperial College London protein folding practical led by Dr Ernesto Cota.</p></div><div class="privacy"><strong>Your data stay in this browser workflow.</strong><p>Opening files and fitting use your device. The app downloads Python packages from jsDelivr; measurement contents are not uploaded. Autosave uses this browser's local storage. An internet connection is required for runtime startup; offline use is not guaranteed.</p></div></footer>
+</main>
+</body></html>

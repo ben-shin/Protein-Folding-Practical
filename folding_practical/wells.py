@@ -40,14 +40,27 @@ def well_sort_key(well: str, order: str = "row-major") -> int:
     raise ValueError("order must be 'row-major' or 'column-major'")
 
 
-def consecutive_wells(start_well: str, count: int, order: str = "row-major") -> list[str]:
-    """Return ``count`` wells beginning at ``start_well`` in the requested order."""
+def consecutive_wells(
+    start_well: str,
+    count: int,
+    order: str = "row-major",
+    *,
+    clamp: bool = False,
+) -> list[str]:
+    """Return ``count`` wells beginning at ``start_well`` in the requested order.
+
+    With ``clamp=True`` a block that would run past H12 is shortened to the
+    wells that remain instead of raising. Clicking near the end of the plate is
+    then a harmless mistake rather than an error dialog.
+    """
     if count < 1:
         raise ValueError("count must be at least 1")
     start_index = well_sort_key(start_well, order)
     plate_size = 96
     if start_index + count > plate_size:
-        raise ValueError("Requested wells run past the end of the 96-well plate")
+        if not clamp:
+            raise ValueError("Requested wells run past the end of the 96-well plate")
+        count = plate_size - start_index
 
     wells: list[str] = []
     for index in range(start_index, start_index + count):
