@@ -52,7 +52,7 @@ function ensureWorker() {
     event.preventDefault(); stopWorker("The browser could not start Python. Check your connection, then try again.");
   };
 }
-function stopWorker(reason = "Calculation cancelled. Your data are still here.") {
+function stopWorker(reason = "Cancelled. Data retained.") {
   worker?.terminate(); worker = null;
   for (const job of pending.values()) {clearTimeout(job.timeout); job.reject(new Error(reason));}
   pending.clear(); $("runtime-status").textContent = "Python stopped. The next action will restart it.";
@@ -85,11 +85,11 @@ function autosave() {
     syncPrepared();
     try {
       localStorage.setItem(STORE,JSON.stringify({project,prepared,locks,selected_index:activePreparedIndex,model:$("model").value,saved_at:new Date().toISOString()}));
-      $("autosave-state").textContent = "Saved on this browser · " + new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+      $("autosave-state").textContent = "Saved locally · " + new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
     } catch {$("autosave-state").textContent = "Browser storage is unavailable or full. Download a project to keep your work.";}
   }, 350);
 }
-function invalidate(reason="Settings changed. Fit again to update the results.") {
+function invalidate(reason="Settings changed. Refit required.") {
   revision++;
   if (project) {project.result = null; project.content_fingerprint = null;}
   $("fit-state").textContent = reason;
@@ -107,7 +107,7 @@ function setProject(value, {keepLocks=false,preparedIndex=-1}={}) {
   else if(project.result?.fit_request?.model) $("model").value=project.result.fit_request.model;
   $("group-picker").selectedIndex=activePreparedIndex;
   $("source-summary").replaceChildren(element("strong", project.source?.name || "Prepared group"), element("div", `${project.observations.length} observations · ${project.source?.kind || "local file"}`,"small muted"));
-  $("fit-state").textContent = project.result ? "Saved fit restored." : "Inspect the observations, then fit a model.";
+  $("fit-state").textContent = project.result ? "Fit restored" : "Ready to fit";
   $("preview-details").open = false;
   renderPreview(); renderPlots(); renderResults(); updateControls(); autosave();
 }
@@ -199,7 +199,7 @@ function renderPlots() {
   if (fit?.success) {
     const residuals=(fit.observed.x||[]).map((x,i)=>({x,y:fit.observed.residuals[i],id:fit.observed.row_ids?.[i]}));
     $("residual-plot").replaceChildren(chart(residuals,[],true));
-  } else $("residual-plot").replaceChildren(element("p","Fit a model to inspect the residuals.","muted small"));
+  } else $("residual-plot").replaceChildren(element("p","No fit","muted small"));
 }
 const PARAM_LABELS={delta_g_h2o_kj_mol:["ΔG° unfolding","kJ mol⁻¹"],m_value_kj_mol_m:["m-value","kJ mol⁻¹ M⁻¹"],cm_m:["Midpoint Cₘ","M"],midpoint_m:["Midpoint Cₘ","M"],width_m:["Transition width","M"],low_denaturant_signal:["Low-denaturant baseline","a.u."],high_denaturant_signal:["High-denaturant baseline","a.u."]};
 function renderResults() {
@@ -207,13 +207,13 @@ function renderResults() {
   badge.className="badge";
   if (!project?.result) {
     badge.textContent=project?"Ready to fit":"Awaiting data";
-    content.append(element("p","A completed calculation alone cannot establish equilibrium, reversibility, or a two-state mechanism. Inspect the transition and both baselines before interpreting stability.","muted small")); return;
+    return;
   }
   const result=project.result;
   if (result.fits.length>1) {
     const tabs=element("div");
     result.fits.forEach((fit,i)=>{const button=element("button",fit.model_name,`fit-tab ${i===activeFit?"active":""}`);button.addEventListener("click",()=>{activeFit=i;renderResults();renderPlots();});tabs.append(button);});content.append(tabs);
-    content.append(element("p",result.preferred_model ? `Preferred statistical fit among the models compared: ${result.preferred_model}.` : "No defensible statistical preference is available.","small"));
+    content.append(element("p",result.preferred_model ? `Preferred statistical fit: ${result.preferred_model}.` : "No statistical preference.","small"));
     const table=element("table",undefined,"comparison");const head=element("tr");
     for (const text of ["Model","AICc","RMSE","Interpretation"]) head.append(element("th",text));table.append(head);
     result.fits.forEach(f=>{const tr=element("tr");for(const text of [f.model_name,number(f.metrics?.aicc,5),number(f.metrics?.rmse,4),(f.interpretation_status||"fit_failed").replaceAll("_"," ")]) tr.append(element("td",text));table.append(tr);});content.append(table);
@@ -222,23 +222,21 @@ function renderResults() {
   const status=fit.interpretation_status||"fit_failed";
   badge.textContent=status.replaceAll("_"," ");
   badge.classList.add(status==="interpretable"?"success":status==="fit_failed"?"failure":"caution");
-  content.append(element("p",`${fit.model_name} · calculation ${fit.success?"completed":"did not produce a usable solution"}. ${fit.message||""}`,"state-message"));
+  content.append(element("p",`${fit.model_name}${fit.success?"":" · fit failed"}${fit.message?": "+fit.message:""}`,"state-message"));
   if (fit.success) {
     const stats=element("div",undefined,"stats");
     const keys=fit.parameters.cm_m!==undefined?["cm_m","delta_g_h2o_kj_mol","m_value_kj_mol_m"]:["midpoint_m","width_m","low_denaturant_signal"];
     for(const key of keys){const item=element("div",undefined,"stat"),[label,unit]=PARAM_LABELS[key];item.append(element("small",label),element("strong",number(fit.parameters[key],4)),element("small",`${unit} · SE ${number(fit.standard_errors?.[key],3)}`));stats.append(item);}content.append(stats);
-    if(status!=="interpretable") content.append(element("p","Treat these numerical estimates as provisional: the diagnostics below limit their interpretation.","small"));
   }
   const warnings=fit.warnings||[];
   if(warnings.length){const box=element("div",undefined,"warnings");warnings.forEach(w=>box.append(element("p",w)));content.append(box);}
-  content.append(element("p","Two-state thermodynamic interpretation still requires experimental evidence of equilibrium and reversibility. Local covariance standard errors do not establish those assumptions.","small muted"));
-  const details=element("details");details.append(element("summary","Full parameters & diagnostics"));
+  const details=element("details");details.append(element("summary","Parameters & diagnostics"));
   details.append(element("pre",JSON.stringify({parameters:fit.parameters,standard_errors:fit.standard_errors,metrics:fit.metrics,diagnostics:fit.diagnostics},null,2),"details-json"));content.append(details);
 }
 
 async function readFile(file) {
   if(!file) return null;
-  if(file.size>MAX_FILE) throw new Error("Please use a file smaller than 2 MB. Export a group series for student analysis.");
+  if(file.size>MAX_FILE) throw new Error("File exceeds 2 MB. Use a smaller CSV or project.");
   const bytes=await file.arrayBuffer();
   const hash=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),b=>b.toString(16).padStart(2,"0")).join("");
   let text,encoding="utf-8";
@@ -251,7 +249,7 @@ function download(text,filename,mime="application/json") {
 }
 async function exportAction(action) {
   const data=await request({action,project,include_excluded:true});download(data.text,data.filename,data.mime);
-  if(action==="export_legacy_csv") message("CSV includes all source rows and raw fluorescence. Use the project JSON to preserve exclusions, blank correction and measurement metadata.");
+  if(action==="export_legacy_csv") message("Raw CSV exported. Only project JSON preserves exclusions, blank correction and metadata.");
 }
 function renderGroups() {
   const select=$("group-picker");select.replaceChildren();
@@ -268,12 +266,12 @@ function saveFigure() {
   svg.append(svgNode("text",{x:50,y:62,"font-size":11,fill:"#456169","font-family":"Arial"},metadataText()));
   const first=main.cloneNode(true);first.setAttribute("x","40");first.setAttribute("y","90");first.setAttribute("width","880");first.setAttribute("height","405");svg.append(first);
   if(residual){const second=residual.cloneNode(true);second.setAttribute("x","40");second.setAttribute("y","500");second.setAttribute("width","880");second.setAttribute("height","175");svg.append(second);}
-  svg.append(svgNode("text",{x:50,y:700,"font-size":11,fill:"#456169","font-family":"Arial"},`${currentFit()?.model_name||""} · ${currentFit()?.interpretation_status||""} · analysis ${project.software_version} · see exported report for assumptions and diagnostics`));
+  svg.append(svgNode("text",{x:50,y:700,"font-size":11,fill:"#456169","font-family":"Arial"},`${currentFit()?.model_name||""} · ${currentFit()?.interpretation_status||""} · ${project.software_version}`));
   download(new XMLSerializer().serializeToString(svg),"folding-figure.svg","image/svg+xml");
 }
 
-$("example").addEventListener("click",()=>task(async()=>{const data=await request({action:"example"});setProject(projectData(data));message("Synthetic teaching data loaded. Estimate the midpoint before fitting.");}));
-$("series-file").addEventListener("change",event=>task(async()=>{const file=await readFile(event.target.files[0]);event.target.value="";if(!file)return;setProject(projectData(await request({action:"import_series",...file})));message("Group CSV loaded. Check the measurement settings and excluded rows.");}));
+$("example").addEventListener("click",()=>task(async()=>{const data=await request({action:"example"});setProject(projectData(data));message("Example loaded.");}));
+$("series-file").addEventListener("change",event=>task(async()=>{const file=await readFile(event.target.files[0]);event.target.value="";if(!file)return;setProject(projectData(await request({action:"import_series",...file})));message("CSV loaded.");}));
 $("project-file").addEventListener("change",event=>task(async()=>{
   const file=await readFile(event.target.files[0]);event.target.value="";if(!file)return;
   const parsed=JSON.parse(file.text);
@@ -281,23 +279,23 @@ $("project-file").addEventListener("change",event=>task(async()=>{
     const data=await request({action:"load_practical",...file});const practical=data.practical||data;
     activePreparedIndex=-1;prepared=practical.projects;locks=practical.instructor_locks||{};renderGroups();setProject(structuredClone(prepared[practical.selected_index||0]),{keepLocks:true,preparedIndex:practical.selected_index||0});
   }else {activePreparedIndex=-1;prepared=[];renderGroups();setProject(projectData(await request({action:"load_project",...file})));}
-  message("Project loaded. Measurements and settings have been validated; fit again to calculate fresh results.");
+  message("Project loaded. Refit required.");
 }));
 $("group-picker").addEventListener("change",()=>{const index=Number($("group-picker").value);syncPrepared();setProject(structuredClone(prepared[index]),{keepLocks:true,preparedIndex:index});});
 $("group-name").addEventListener("input",()=>{if(project){project.settings.group_name=$("group-name").value;invalidate();}});
 $("temperature").addEventListener("input",()=>{if(project){project.settings.temperature_k=$("temperature").value===""?null:Number($("temperature").value);invalidate();}});
 $("visual-midpoint").addEventListener("input",()=>{if(project){project.visual_midpoint_m=$("visual-midpoint").value===""?null:Number($("visual-midpoint").value);autosave();}});
 $("notes").addEventListener("input",()=>{if(project){project.notes=$("notes").value;autosave();}});
-$("model").addEventListener("change",()=>invalidate("Model changed. Fit again to update the result."));
+$("model").addEventListener("change",()=>invalidate("Model changed. Refit required."));
 $("fit").addEventListener("click",()=>task(async()=>{
   const currentRevision=revision;
   const invalid=project.observations.find(r=>r.excluded&&!r.exclusion_reason?.trim());
   if(invalid){$("preview-details").open=true;throw new Error(`Add an exclusion reason for ${invalid.row_id}.`);}
-  $("fit-state").textContent="Fitting with multiple initial guesses and checking diagnostics…";
+  $("fit-state").textContent="Fitting…";
   const data=await request({action:"fit",project,model:$("model").value});
   if(currentRevision!==revision)return;
   project=data.project;activeFit=0;renderResults();renderPlots();autosave();
-  $("fit-state").textContent="Calculation finished. Inspect diagnostics, uncertainty and residuals.";
+  $("fit-state").textContent="Fit complete";
 }));
 for(const [id,action] of [["save-project","export_project"],["save-csv","export_legacy_csv"],["save-report","export_report"]]) $(id).addEventListener("click",()=>task(()=>exportAction(action)));
 $("save-figure").addEventListener("click",saveFigure);
@@ -313,7 +311,7 @@ $("recover").addEventListener("click",()=>task(async()=>{
   locks=saved.locks||{};renderGroups();
   if(saved.project)setProject(projectData(await request({action:"validate_project",project:saved.project})),{keepLocks:true,preparedIndex:saved.selected_index??-1});
   if(saved.model)$("model").value=saved.model;
-  $("recovery").hidden=true;message("Session recovered. Refit if the results were invalidated during recovery.");
+  $("recovery").hidden=true;message("Session recovered. Refit required.");
 }));
 $("discard").addEventListener("click",()=>{try{localStorage.removeItem(STORE);}catch{}$("recovery").hidden=true;});
 
@@ -329,7 +327,7 @@ function updatePlateOptions(){
   fillSelect($("measurement"),[...new Set(plate.measurements.filter(m=>m.plate_id===$("plate-id").value).map(m=>m.measurement))]);updateMeasurementOptions();
 }
 function loadPlate(value){
-  plate=value;$("plate-source").textContent=`${plate.source.name} · ${plate.rows.length} records · repeat acquisitions retained`;
+  plate=value;$("plate-source").textContent=`${plate.source.name} · ${plate.rows.length} records`;
   fillSelect($("plate-id"),plate.plate_ids);updatePlateOptions();updateControls();
 }
 function orderedWells(){return $("assigned-wells").value.split(/[\s,;]+/).filter(Boolean).map(v=>v.toUpperCase());}
@@ -350,10 +348,10 @@ function renderSpectrum(){
   $("spectrum-preview").hidden=!selected.length;
   if(!selected.length)return;
   const ids=[...new Set(selected.map(r=>r.acquisition_id))];
-  $("spectrum-caption").textContent=`Well ${well} · ${$("measurement").value} · ${ids.join(", ")}. Each acquisition is shown as individual points; these readings are not averaged. Hover over a point for its acquisition identity.`;
+  $("spectrum-caption").textContent=`${well} · ${$("measurement").value} · ${ids.join(", ")} · unaveraged`;
   $("spectrum-plot").replaceChildren(chart(selected.map(r=>({x:r.wavelength_nm,y:r.value,id:`${r.well} / ${r.acquisition_id}`})),[],false,{x:"Emission wavelength (nm)",y:"Raw fluorescence (a.u.)",unit:"nm"}));
 }
-$("plate-file").addEventListener("change",event=>task(async()=>{const file=await readFile(event.target.files[0]);event.target.value="";if(!file)return;const data=await request({action:"import_plate",...file});loadPlate(data.plate);message("Plate parsed. Select the exact signal, wavelength, and acquisition policy.");}));
+$("plate-file").addEventListener("change",event=>task(async()=>{const file=await readFile(event.target.files[0]);event.target.value="";if(!file)return;const data=await request({action:"import_plate",...file});loadPlate(data.plate);message("Plate loaded.");}));
 $("example-plate").addEventListener("click",()=>task(async()=>{
   const data=await request({action:"example_plate"});loadPlate(data.plate);
   const setup=data.prepare_group_request;
@@ -366,7 +364,7 @@ $("example-plate").addEventListener("click",()=>task(async()=>{
   $("blank-enabled").checked=!!setup.blank_correction?.enabled;
   $("blank-wells").value=(setup.blank_correction?.blank_wells||[]).join(", ");
   $("assigned-wells").value=setup.wells.map(w=>w.well).join(", ");$("concentrations").value=setup.wells.map(w=>w.concentration_m).join(", ");
-  $("prepared-name").value=setup.selection.group_name;renderPlateMap();message("Synthetic plate loaded. Inspect the selected wells, then prepare the group.");
+  $("prepared-name").value=setup.selection.group_name;renderPlateMap();message("Example plate loaded.");
 }));
 $("plate-id").addEventListener("change",updatePlateOptions);$("measurement").addEventListener("change",updateMeasurementOptions);$("assigned-wells").addEventListener("input",renderPlateMap);
 $("repeat-policy").addEventListener("change",renderSpectrum);$("acquisition").addEventListener("change",renderSpectrum);
@@ -376,9 +374,9 @@ $("prepare").addEventListener("click",()=>task(async()=>{
   const m=currentMeasurement();
   const data=await request({action:"prepare_group",plate,selection:{group_name:$("prepared-name").value,plate_id:$("plate-id").value,measurement:$("measurement").value,wavelength_nm:$("wavelength").value===""?null:Number($("wavelength").value),excitation_nm:m?.excitations_nm?.length===1?m.excitations_nm[0]:null,temperature_k:298.15,repeat_policy:{mode:$("repeat-policy").value,selected_acquisition_id:$("repeat-policy").value==="select"?$("acquisition").value||null:null,technical_replicates:$("repeat-policy").value==="mean",label:$("replicate-label").value}},wells:wells.map((well,i)=>({well,concentration_m:concentrations[i]})),blank_correction:{enabled:$("blank-enabled").checked,method:"mean",blank_wells:$("blank-wells").value.split(/[\s,;]+/).filter(Boolean)}});
   const p=projectData(data);const duplicate=prepared.some(g=>g.settings.group_name.toLowerCase()===p.settings.group_name.toLowerCase());
-  if(duplicate)throw new Error("A prepared group already has this name. Choose a unique name to keep both assignments.");
+  if(duplicate)throw new Error("Duplicate group name. Choose a unique name.");
   syncPrepared();prepared.push(structuredClone(p));renderGroups();setProject(p,{preparedIndex:prepared.length-1});
-  message("Group prepared. Inspect the observations above, or prepare another group before saving the practical.");
+  message("Group added.");
 }));
 $("save-practical").addEventListener("click",()=>task(async()=>{
   syncPrepared();

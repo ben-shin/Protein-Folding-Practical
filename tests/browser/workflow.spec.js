@@ -34,7 +34,7 @@ function addPrivateMarker(csv) {
     .join("\n") + "\n";
 }
 
-test("student and instructor workflows round-trip locally", async ({ page }) => {
+test("analysis and plate workflows round-trip locally", async ({ page }) => {
   const requests = [];
   page.on("request", request => {
     requests.push({
@@ -45,12 +45,13 @@ test("student and instructor workflows round-trip locally", async ({ page }) => 
   });
 
   await page.goto("/");
+  await expect(page.locator("#fit-state")).toHaveText("No data");
   await clickAndWait(page, "#example");
   await expect(page.locator("#source-summary")).toContainText("synthetic_teaching_plate.csv");
   await expect(page.locator("#row-count")).toContainText("12 rows");
 
   await clickAndWait(page, "#fit");
-  await expect(page.locator("#fit-state")).toContainText("Calculation finished");
+  await expect(page.locator("#fit-state")).toHaveText("Fit complete");
   await expect(page.locator("#result-badge")).not.toHaveText("Ready to fit");
   await expect(page.locator("#residual-plot svg")).toHaveCount(1);
   await expect(page.locator("#save-report")).toBeEnabled();
@@ -82,7 +83,7 @@ test("student and instructor workflows round-trip locally", async ({ page }) => 
   });
   await expect(page.locator("#notice")).toContainText("Project loaded", { timeout: LONG_TIMEOUT });
   await expect(page.locator("#result-badge")).toHaveText("Ready to fit");
-  await expect(page.locator("#fit-state")).toContainText("Inspect the observations");
+  await expect(page.locator("#fit-state")).toHaveText("Ready to fit");
 
   await clickAndWait(page, "#fit");
   await expect(page.locator("#residual-plot svg")).toHaveCount(1);
@@ -90,7 +91,7 @@ test("student and instructor workflows round-trip locally", async ({ page }) => 
   await expect(page.locator("#result-badge")).toHaveText("Ready to fit");
   await expect(page.locator("#residual-plot svg")).toHaveCount(0);
   await expect(page.locator("#save-report")).toBeDisabled();
-  await expect(page.locator("#fit-state")).toContainText("Settings changed");
+  await expect(page.locator("#fit-state")).toHaveText("Settings changed. Refit required.");
 
   const recoveryNote = "Recovered synthetic session after invalidating a fit.";
   await page.locator("#notes").fill(recoveryNote);
@@ -98,7 +99,7 @@ test("student and instructor workflows round-trip locally", async ({ page }) => 
     () => page.evaluate(() => JSON.parse(localStorage.getItem("protein-folding-practical.session.v1"))?.project?.notes),
     { timeout: 10_000 },
   ).toBe(recoveryNote);
-  await expect(page.locator("#autosave-state")).toContainText("Saved on this browser");
+  await expect(page.locator("#autosave-state")).toContainText("Saved locally");
   await page.reload();
   await expect(page.locator("#recovery")).toBeVisible();
   await clickAndWait(page, "#recover");
@@ -106,6 +107,7 @@ test("student and instructor workflows round-trip locally", async ({ page }) => 
   await expect(page.locator("#temperature")).toHaveValue("299");
   await expect(page.locator("#result-badge")).toHaveText("Ready to fit");
 
+  await expect(page.locator("#instructor > summary")).toContainText("Plate data");
   await page.locator("#instructor > summary").click();
   await clickAndWait(page, "#example-plate");
   await expect(page.locator("#plate-source")).toContainText("synthetic_teaching_plate.csv");
@@ -180,6 +182,18 @@ test("student and instructor workflows round-trip locally", async ({ page }) => 
     expect(url.pathname).toContain("/pyodide/");
     expect(request.method).toBe("GET");
   }
+});
+
+test("barebones shell omits slogans and audience framing", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await expect(page.locator(".hero, .hero-note, .eyebrow, .brand-sub, .step")).toHaveCount(0);
+  await expect(page.locator("#instructor > summary")).toContainText("Plate data");
+
+  const headingCopy = await page.locator("h1, h2, h3, summary").allInnerTexts();
+  expect(headingCopy.join(" ")).not.toMatch(/\b(?:student|instructor)\b/i);
+  await expect(page.getByText("From fluorescence", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("A guided analysis", { exact: false })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("barebones-desktop.png"), fullPage: true });
 });
 
 test("mobile layout has no horizontal overflow and skip navigation is keyboard reachable", async ({
