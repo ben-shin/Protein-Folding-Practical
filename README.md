@@ -28,6 +28,11 @@ assets and Python modules; it excludes documentation and class data.
 5. Export a **Project**, **CSV**, **Report**, or **Figure**. Project JSON preserves
    settings, exclusions, notes, and measurement metadata. Refit after reloading.
 
+If an older open tab still shows 12 points, open the
+[updated practical](https://ben-shin.github.io/Protein-Folding-Practical/index.html?release=0.6.1)
+and select **Example · 16 points**. This reloads the app without clearing your
+saved projects. Saved projects keep their original observations.
+
 Both built-in examples use **16 concentration points: 0 to 6 M GuHCl in 0.4 M
 steps**. The example plate assigns A1–A12 followed by B1–B4, with separate blanks
 in H1–H4. Synthetic data are labeled as such. Original measurement examples are
