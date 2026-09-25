@@ -111,7 +111,9 @@ def _plate_aliases(data: pd.DataFrame, plate_id: str) -> set[str]:
     names = {str(plate_id)}
     if "source_file" in data.columns:
         sources = data.loc[data["plate_id"].astype(str) == str(plate_id), "source_file"].dropna()
-        for source in sources.astype(str):
+        # Spectrum plates repeat each source filename for every well and
+        # wavelength. Resolve each distinct filename once per plate lookup.
+        for source in sources.astype(str).unique():
             names.add(source)
             names.add(Path(source).stem)
     aliases: set[str] = set()

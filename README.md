@@ -1,220 +1,199 @@
-# Protein-Folding-Practical
+# Protein Folding Practical
 
-## Open the browser practical
+[Open the browser practical](https://ben-shin.github.io/Protein-Folding-Practical/)
 
-**[Launch the practical](https://ben-shin.github.io/Protein-Folding-Practical/)**
+Analyze GFP denaturation data and prepare individual group CSV files from
+CLARIOstar plate-reader exports. The browser app uses a minimal interface and
+runs the shared Python analysis code locally in a Web Worker. Students do not
+need to install Python. The desktop application and command-line batch exporter
+remain available.
 
-Students can use the synthetic example, open their existing three-column group
-CSV, or load an instructor-prepared project without installing Python. The
-browser interface runs the shared Python analysis core locally in a Web Worker,
-shows observations, residuals and interpretation diagnostics, and exports data,
-figures, reports and reloadable projects. The instructor workspace prepares
-groups from plate data with explicit measurement and acquisition choices.
+Developed for Imperial College London's Protein Folding Practical, led by
+Dr. Ernesto Cota. For help or suggestions, contact Dr. Cota or
+[Ben Shin](mailto:benwshin@gmail.com).
 
-See [browser release and teaching notes](docs/browser-release.md) for the pinned
-runtime, data handling, validation, deployment and classroom pilot checklist.
-The desktop workflow described below remains available.
+This README belongs to the source repository. **It is not included in the
+GitHub Pages site.** The site build publishes only explicitly listed application
+assets and Python modules; it excludes documentation and class data.
 
-For Imperial College London's Protein Folding Practical lead by Dr. Ernesto Cota.
+## Student analysis
 
-If you need any help, want to report a bug, or have suggestions on improving the software, email Dr. Cota or me at benwshin@gmail.com
+1. Open the browser practical and select **Open CSV** to load your group's file,
+   **Open project** to restore a saved project, or **Example** to try synthetic data.
+2. Check the sample name, temperature, observations, and measurement information.
+3. Enter an estimated midpoint and choose the two-state model, logistic model,
+   or **Compare both**. Select **Fit**.
+4. Inspect the curve, residuals, parameter uncertainty, and interpretation warnings.
+   Record a reason for each excluded observation under **Data & exclusions**.
+5. Export a **Project**, **CSV**, **Report**, or **Figure**. Project JSON preserves
+   settings, exclusions, notes, and measurement metadata. Refit after reloading.
 
-Python based GUI software to process GFP folding practical data from 96 well CLARIOstar plate reader exports.
+Both built-in examples use **16 concentration points: 0 to 6 M GuHCl in 0.4 M
+steps**. The example plate assigns A1–A12 followed by B1–B4, with separate blanks
+in H1–H4. Synthetic data are labeled as such. Original measurement examples are
+not replaced or interpolated.
 
-This is designed to make data management and analysis easier. It imports raw CSV files into a tidy table, lets the instructor assign wells and GuHCl concentrations to named practical groups, exports one clean CSV per group for distribution, and allows overlays of any number of groups. It can also fit descriptive and thermodynamics denaturation curves.
+## Prepare CSV files for student groups
 
-## The short version
+1. Expand **Plate data** and select **Open plate CSVs**. Select all relevant plate
+   exports together; opening another selection replaces the currently loaded plates.
+2. Select **Open group list CSV** and load the group assignment file. Use
+   **Group list template** for the expected structure.
+3. Check the signal, emission wavelength, repeated-read policy, and concentration
+   series. The default practical series contains 16 points from 0 to 6 M.
+4. Select **Prepare group list**. Review the summary: valid groups are prepared;
+   invalid rows are listed with a reason so they can be corrected.
+5. Select **Download group CSVs**. Extract the ZIP archive and give each student
+   group its own CSV. Each file opens directly using the student's **Open CSV**.
 
-If you have the plate files and a group map, you never have to touch the plate map. Press **Ctrl+B** (or **Batch export**), pick every plate CSV, pick the group map, pick a folder. Every group gets both of its CSVs, and the data stays loaded so you can go straight to fitting. Anything that could not be read is listed at the end instead of stopping the run.
+The ZIP contains one denaturation CSV per prepared group. It does not contain
+class rosters or an answer key. Use **Save all groups** for a reloadable practical
+JSON file, or **Project** for an individual group's complete analysis state.
+Only distribute the individual file intended for each student group.
 
-## What this repo can do
+For a manual assignment, select the plate and signal, click wells in concentration
+order or enter their names, enter one concentration per well, name the group,
+and select **Add group**. Blank correction applies to manual preparation; group-list exports use raw
+fluorescence. Repeated-read choices apply to both preparation routes.
+Missing observations and ambiguous repeated reads are not silently averaged.
 
-### 1. Import plate reader CSV files
+### Group list format
 
-The importer should accept several common layouts:
-1. A long table containing a 'Well', 'Well ID', 'Position', or equivalent column
-2. An 8x12 plate grid with rows A-H
-3. A simple well vs value table.
+The standard headers are `group name`, `plate number`, and `well ranges`:
 
-The read tables contain:
-1. 'plate_id'
-2. 'source_file'
-3. 'well'
-4. 'row'
-5. 'column'
-6. 'measurement'
-7. 'value'
+```csv
+group name,plate number,well ranges
+Group 1,P1,A1-B4
+Group 2,P1,B5-C8
+Group 3,P2,A1-B4
+```
 
-If the export contains a bunch of numerical readouts, the GUI exposes them through the **Signal** menu
+Plate names match the uploaded file's name without `.csv` (for example, `P1.csv`
+corresponds to `P1`). Well ranges follow row-major order: `A1-B4` means A1 through
+A12, then B1 through B4. That is 16 wells, not a rectangular block. Preserve the
+order in which the concentrations were plated.
 
-### 2. Assign wells to practical groups
+The concentration series is:
 
-Wells are selected on an interactive 96 well map that shows what is going on while you work:
-
-1. Every selected well is numbered with its place in the concentration series, so you can see the order you actually clicked
-2. Wells that already belong to another group are tinted in that group's colour, so gaps and overlaps are obvious
-3. Wells with no data for the current plate and signal are greyed out
-4. Hovering a well reads out its value and its group
-
-**Groups that did not plate where the map says.** Leave *One click selects a whole block of conditions* ticked, set the number of conditions, and click the first well of the group. That well and the next ones in reading order are taken, wherever the group happened to start. A block that would run past H12 is shortened rather than refused, and the status bar says so. Untick it to click wells one at a time or drag across a run of them. Right click removes a single well and **Undo last well** removes the most recent one.
-
-A start well can also be typed into the **Start well** box if you prefer.
-
-Double-clicking a saved group loads it back into the editor, so a bad assignment can be fixed instead of deleted and redone.
-
-Each named group stores:
-1. plate/file identity
-2. selected signal
-3. ordered wells
-4. ordered GuHCl concentrations
-
-The number and pattern of conditions have not been hardcoded. 12-16 conditions work naturally, but any group with at least 3 conditions can be stores. At least 8 observations are needed for the twostate thermodynamics fit.
-
-### 3. Export clean group files
-
-Each group is exported as '<group_name>.csv' with exactly these columns:
 ```text
-GuHCl concentration (M)
-raw fluorescence values
-normalized fluorescence values
+0, 0.4, 0.8, 1.2, 1.6, 2.0, 2.4, 2.8, 3.2, 3.6, 4.0, 4.4, 4.8, 5.2, 5.6, 6.0
 ```
 
-Normalization is within group min-max scaling:
-```text
-(value-min)/(max-min)
+Optional `concentrations`, `measurement`, and `wavelength` columns override the
+shared settings for a row. Quote comma-separated lists in CSV cells:
+
+```csv
+group name,plate number,well ranges,concentrations
+Group 1,P1,A1-B4,"0,0.4,0.8,1.2,1.6,2,2.4,2.8,3.2,3.6,4,4.4,4.8,5.2,5.6,6"
 ```
 
-Each group also gets '<group_name>_spectra.csv', which is the whole emission scan laid out one row per wavelength and one column per condition:
-```text
-wavelength (nm),0M,0.4M,0.8M,1.2M, ... ,6M
-500.0,16986.0,12970.0,17345.0,16725.0, ... ,124.0
-501.0,17649.5,13405.4,18056.2,17360.9, ... ,126.1
+The browser also accepts optional `repeat_policy` and `acquisition_id` columns;
+these override the shared repeated-read settings for each row.
+Every group must have a unique name, exist on one loaded plate, and provide one
+concentration per assigned well. Groups with different numbers of conditions
+need explicit matching concentrations. See `examples/groups.csv` for the original
+practical mapping.
+
+### Individual output format
+
+Each group CSV has exactly these columns, in the assigned concentration order:
+
+```csv
+GuHCl concentration (M),raw fluorescence values,normalized fluorescence values
 ```
 
-The column order follows the order the wells were assigned in, so it matches the concentration series exactly. Repeated concentrations within one group are numbered, for example `0.4M (2)`.
+Normalization is within-group min–max scaling: `(value - min) / (max - min)`.
+It is not an estimate of fraction folded. For flat or entirely missing signals,
+normalization is undefined: the cells stay blank and a warning is shown.
+CSV exports contain raw fluorescence;
+exclusions, blank correction, and metadata require project JSON.
 
-The raw imported table and the group assignment mapping can also be saved.
+Plate inputs may be CLARIOstar emission scans, long tables with a well column,
+8-by-12 grids, or simple well/value tables. The browser limits each input file to
+2 MB, a selection to 32 plates and 20 MB, and combined plate data to 100,000 rows.
+Group lists accept up to 500 rows; prepared groups may contain up to 5,000
+observations in total.
+Use the desktop batch tool for larger datasets.
 
-### 3a. Export everything in one pass
+## Scientific interpretation
 
-**File -> Batch export from files** (Ctrl+B) asks for the plate CSVs, the group map, and an output folder, then writes both files for every group. The same thing runs from a terminal without opening the app:
+The two-state linear extrapolation model uses concentration-dependent folded
+and unfolded baselines:
 
-```bash
-protein-folding-batch --plates examples/P*.csv --groups examples/groups.csv --out exported
-```
-
-Useful options:
-
-| Option | What it does |
-| --- | --- |
-| `--concentrations "0,0.4,0.8"` | Use this exact series for every group |
-| `--range 0 6` | Spread this range evenly over each group's wells (the default) |
-| `--no-spectra` / `--no-curves` | Write only one of the two file types |
-| `--wavelength 508` | Emission wavelength for the denaturation curve |
-
-A group whose row cannot be read — a plate that was not loaded, a well range with no data, a duplicate name — is reported at the end and every other group is still written.
-
-### 4. Plot and fit any combination of groups
-
-The analysis panel can display one group, several groups, or all groups on the same graph. Matplotlib assigns a different color to each group.
-
-Available models:
-1. 4PL logistic
-2. 2 state linear extrapolation
-3. Auto compare
-4. Fit both
-
-The thermodynamics model uses:
 ```text
 ΔG_unfold([D]) = ΔG°H2O - m[D]
 Cm = ΔG°H2O / m
 ```
 
-and reports:
-1. ΔG°unfolding,H2O in kJ/mol and the corresponding ΔG°folding,H2O = -ΔG°unfolding,H2O
-2. m-value in kJ/mol/M
-3. Cm in M GuHCl
-4. covariance derived standard errors
-5. RMSE, R2, AIC, AICc, and BIC
+It reports unfolding free energy in kJ/mol, m-value in kJ/mol/M, midpoint,
+covariance-based standard errors, and fit diagnostics. Folding free energy has
+the opposite sign. Thermodynamic interpretation requires experimental support
+for equilibrium, reversibility, and two-state behavior. A logistic fit is
+descriptive and does not establish thermodynamic free energies or mechanism.
 
-## Scientific interpretation
+AIC, AICc, and BIC compare fits to the same retained observations and response
+scale. Warnings about flat signals, incomplete transitions, or poorly constrained
+parameters matter even when the numerical optimization converges.
 
-A logistic curve alone does NOT provide thermodynamic folding free energies. The reported free energies only come from the 2 state LEM fit. The fitted quantity is ΔG°unfolding,H2O and reports the folding energy, which is just a negative. You can only interpret this when the experiment is close to equilibrium and GFP behaves as a reversible 2 state system in the conditions.
+## Privacy and storage
 
-## Installation
+Files and calculations stay in the browser. Application assets and pinned Python
+packages are downloaded at startup; measurement files are not uploaded. Autosave
+uses this browser's local storage. Download a project for durable storage and
+use **Reset** on shared computers. Internet access is needed for the runtime;
+offline startup is not guaranteed.
 
-Python 3.9 or newer is recommended.
+## Desktop and command-line use
 
-### Windows PowerShell
-```bash
+Install Python 3.9 or newer, then:
+
+```sh
 git clone https://github.com/ben-shin/Protein-Folding-Practical.git
 cd Protein-Folding-Practical
-conda env create -f .\environment.yml
-conda activate proteinfoldingpractical
-python -m pip install -e . --no-deps
-.\launch_windows.ps1
-```
-### Linux
-```bash
-git clone https://github.com/ben-shin/Protein-Folding-Practical.git
-cd Protein-Folding-Practical
-conda env create -f environment.yml
-conda activate proteinfoldingpractical
-python -m pip install -e . --no-deps
-chmod +x launch_linux.sh
-./launch_linux.sh
-```
-### macOS
-```bash
-git clone https://github.com/ben-shin/Protein-Folding-Practical.git
-cd Protein-Folding-Practical
-conda env create -f environment.yml
-conda activate proteinfoldingpractical
-python -m pip install -e . --no-deps
-chmod +x launch_macos.command
-./launch_macos.command
+python -m pip install -e .
+python run_app.py
 ```
 
+Alternatively, create the Conda environment from `environment.yml` and run the
+included Windows, macOS, or Linux launcher. In the desktop app, **File → Batch
+export from files** (Ctrl+B) accepts the plate CSVs, group list, and output folder.
 
-## Practical workflow
+```sh
+protein-folding-batch --plates examples/P*.csv --groups examples/groups.csv --out exported
+```
 
-If you have a group map, use **Batch export** (Ctrl+B) and skip to step 9.
+The desktop batch exporter writes both `<group>.csv` curves and
+`<group>_spectra.csv` emission scans. Useful options include:
 
-1. Export the CLARIOstar data as CSV files.
-2. Open the application and load the CSV files.
-3. Select the plate and measurement signal.
-4. Click the first well of a group with block selection on, or click wells one at a time in increasing or decreasing GuHCl order.
-5. Check the numbers on the selected wells — that is the concentration order.
-6. Enter or generate the concentration list. The panel says whether the well count and the concentration count agree.
-7. Name and add the group. The name is advanced for you, so the next group is one click and one Enter away.
-8. Repeat for all practical groups, then export the group CSVs and the spectra CSVs.
-9. In the analysis tab, select any of the groups, choose **Auto compare** and run the fit.
-10. Check the graph, model comps, param uncertainty, and residual plausibility.
-
-### Keyboard shortcuts
-
-| Shortcut | Action |
+| Option | Purpose |
 | --- | --- |
-| Ctrl+O | Load plate CSV files |
-| Ctrl+G | Load group map CSV |
-| Ctrl+B | Batch export from files |
-| Ctrl+E | Export all group CSVs |
-| Ctrl+S | Save group mapping |
-| F1 | Quick start |
+| `--concentrations "0,0.4,0.8"` | An explicit series matching each group's well count |
+| `--range 0 6` | An evenly spaced range, defaulting to 0–6 M |
+| `--wavelength 508` | Emission wavelength for the denaturation curve |
+| `--no-spectra` / `--no-curves` | Export only one file type |
 
-## The group map
+## Development and deployment
 
-The group map CSV assigns wells and concentrations to groups automatically. It must have three columns with headers
-```text
-group name, plate number, well ranges
-```
-The plate number should match the name of the plate reading CSV file. See `examples/groups.csv`.
-
-Optional extra columns are picked up if present: `concentrations`, `measurement`, and `wavelength`. Give a group its own `concentrations` list when it does not run the same series as everyone else — that is also the only way to mix groups with different numbers of conditions in one map.
-
-A group's conditions must all be on a single plate. A row that breaks any of these rules is now skipped and reported rather than stopping the whole import, so the rest of the cohort still loads and exports; fix those groups by hand on the plate map.
-
-## Tests
-```bash
+```sh
+python -m pip install -r requirements-browser-reference.txt matplotlib==3.8.4
 python -m pytest -q
+python scripts/generate_reference.py
+python scripts/build_web.py
+npm ci
+npx playwright install --with-deps chromium
+npm run test:browser
+python -m http.server --directory dist 8765
 ```
+
+The browser runtime pins Pyodide 0.27.7, Python 3.12.7, NumPy 2.0.2,
+SciPy 1.14.1, and pandas 2.2.3. Native/browser parity tests check numerical
+results, and browser tests exercise import, fitting, recovery, and downloads.
+
+GitHub Actions tests changes before publishing `dist/` to
+[GitHub Pages](https://ben-shin.github.io/Protein-Folding-Practical/). Pull requests
+run checks without publishing. The Pages source is **GitHub Actions**. The build
+allowlist and its regression test keep this README, other documentation,
+measurement files, and group lists out of the published artifact.
+
+See [browser release notes](docs/browser-release.md) for runtime details,
+validation, and classroom checks.

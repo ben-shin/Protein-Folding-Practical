@@ -345,7 +345,7 @@ def test_fit_returns_plot_payload_and_strict_json():
             "excluded_indices",
         }
         assert set(fit["curve"]) == {"x", "y"}
-        assert len(fit["observed"]["row_ids"]) == 12
+        assert len(fit["observed"]["row_ids"]) == 16
         assert fit["interpretation_status"] in {
             "interpretable",
             "caution",
@@ -542,4 +542,13 @@ def test_example_plate_is_explicitly_synthetic_and_self_contained():
     assert data["project"]["settings"]["wavelength_nm"] == 508.0
     assert data["project"]["settings"]["excitation_nm"] == 472.0
     assert data["prepare_group_request"]["action"] == "prepare_group"
-    assert len(data["project"]["observations"]) == 12
+    observations = data["project"]["observations"]
+    assert len(observations) == 16
+    assert [row["well"] for row in observations] == [
+        *[f"A{index}" for index in range(1, 13)],
+        *[f"B{index}" for index in range(1, 5)],
+    ]
+    assert [row["concentration_m"] for row in observations] == [index * 4 / 10 for index in range(16)]
+    assert all(row["raw_signal"] is not None and not row["excluded"] for row in observations)
+    assert data["prepare_group_request"]["blank_correction"]["blank_wells"] == ["H1", "H2", "H3", "H4"]
+    assert ok({"action": "example"})["project"]["observations"] == observations

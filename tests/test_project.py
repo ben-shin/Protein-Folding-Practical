@@ -149,6 +149,34 @@ def test_load_group_map_assignments(tmp_path):
     assert assignment.wavelength_nm == 508.0
 
 
+
+def test_group_map_rejects_ambiguous_plate_alias_but_accepts_full_filename(tmp_path):
+    rows = [
+        {
+            "plate_id": plate_id,
+            "source_file": f"{plate_id}.csv",
+            "well": well,
+            "measurement": "Fluorescence",
+            "value": offset + index,
+        }
+        for plate_id, offset in [("P1(first)", 10), ("P1(second)", 100)]
+        for index, well in enumerate(["A1", "A2", "A3"])
+    ]
+    data = pd.DataFrame(rows)
+    path = tmp_path / "groups.csv"
+    path.write_text("group name,plate number,well ranges\nGroup,P1,A1-A3\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="matches more than one loaded plate"):
+        load_group_map_assignments(data, path, default_concentrations=[0, 3, 6])
+
+    path.write_text(
+        "group name,plate number,well ranges\nGroup,P1(second).csv,A1-A3\n",
+        encoding="utf-8",
+    )
+    assignment = load_group_map_assignments(data, path, default_concentrations=[0, 3, 6])["Group"]
+    assert assignment.plate_id == "P1(second)"
+    assert build_group_dataframe(data, assignment)["raw fluorescence values"].tolist() == [100, 101, 102]
+
+
 def test_group_map_rejects_overlapping_wells(tmp_path):
     from folding_practical.project import load_group_map_assignments
 

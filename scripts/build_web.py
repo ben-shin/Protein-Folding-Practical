@@ -7,7 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "dist"
-CORE = ["__init__.py", "_version.py", "models.py", "analysis.py", "plate_io.py", "project.py", "wells.py"]
+CORE = ["__init__.py", "_version.py", "models.py", "analysis.py", "plate_io.py", "project.py", "wells.py", "browser_batch.py"]
 ASSETS = ["index.html", "styles.css", "app.js", "worker.js", "favicon.svg"]
 
 def build():

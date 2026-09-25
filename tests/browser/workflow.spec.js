@@ -48,7 +48,7 @@ test("analysis and plate workflows round-trip locally", async ({ page }) => {
   await expect(page.locator("#fit-state")).toHaveText("No data");
   await clickAndWait(page, "#example");
   await expect(page.locator("#source-summary")).toContainText("synthetic_teaching_plate.csv");
-  await expect(page.locator("#row-count")).toContainText("12 rows");
+  await expect(page.locator("#row-count")).toContainText("16 rows");
 
   await clickAndWait(page, "#fit");
   await expect(page.locator("#fit-state")).toHaveText("Fit complete");
@@ -74,7 +74,7 @@ test("analysis and plate workflows round-trip locally", async ({ page }) => {
     timeout: LONG_TIMEOUT,
   });
   await expect(page.locator("#result-badge")).toHaveText("Ready to fit");
-  await expect(page.locator("#row-count")).toContainText("12 rows · 0 excluded");
+  await expect(page.locator("#row-count")).toContainText("16 rows · 0 excluded");
 
   await page.locator("#project-file").setInputFiles({
     name: projectDownload.filename,
@@ -137,6 +137,7 @@ test("analysis and plate workflows round-trip locally", async ({ page }) => {
   await page.locator("#group-picker").selectOption("0");
   await expect(page.locator("#group-name")).toHaveValue("Synthetic teaching example");
   await expect(page.locator("#notes")).toHaveValue(firstGroupNote);
+  await page.locator("#preview-details > summary").click();
   await expect(page.locator("#residual-plot svg")).toHaveCount(1);
   await expect(firstObservation.locator('input[type="checkbox"]')).not.toBeChecked();
   await expect(firstObservation.locator('input[type="text"]')).toHaveValue(
@@ -224,7 +225,7 @@ test("a failed runtime download can be retried without reloading the page", asyn
   await expect(page.locator("#runtime-status")).toContainText("The next action will restart it");
   await expect(page.locator("#example")).toBeEnabled();
   await clickAndWait(page, "#example");
-  await expect(page.locator("#row-count")).toContainText("12 rows", { timeout: LONG_TIMEOUT });
+  await expect(page.locator("#row-count")).toContainText("16 rows", { timeout: LONG_TIMEOUT });
   await expect(page.locator("#fit")).toBeEnabled();
   expect(attempts).toBe(2);
 });
