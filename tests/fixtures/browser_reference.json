@@ -1022,7 +1022,7 @@
               "temperature_k": 298.15,
               "wavelength_nm": null
             },
-            "software_version": "0.6.0",
+            "software_version": "0.6.1",
             "source": {
               "kind": "legacy_series",
               "name": "synthetic_flat.csv",
@@ -2046,7 +2046,7 @@
               "temperature_k": 298.15,
               "wavelength_nm": null
             },
-            "software_version": "0.6.0",
+            "software_version": "0.6.1",
             "source": {
               "kind": "legacy_series",
               "name": "synthetic_flat.csv",
@@ -3342,7 +3342,7 @@
               "temperature_k": 298.15,
               "wavelength_nm": null
             },
-            "software_version": "0.6.0",
+            "software_version": "0.6.1",
             "source": {
               "kind": "legacy_series",
               "name": "synthetic_ideal.csv",
@@ -4627,7 +4627,7 @@
               "temperature_k": 298.15,
               "wavelength_nm": null
             },
-            "software_version": "0.6.0",
+            "software_version": "0.6.1",
             "source": {
               "kind": "legacy_series",
               "name": "synthetic_ideal.csv",
@@ -5770,7 +5770,7 @@
               "temperature_k": 298.15,
               "wavelength_nm": null
             },
-            "software_version": "0.6.0",
+            "software_version": "0.6.1",
             "source": {
               "kind": "legacy_series",
               "name": "synthetic_missing.csv",
@@ -6902,7 +6902,7 @@
               "temperature_k": 298.15,
               "wavelength_nm": null
             },
-            "software_version": "0.6.0",
+            "software_version": "0.6.1",
             "source": {
               "kind": "legacy_series",
               "name": "synthetic_missing.csv",
@@ -8902,7 +8902,7 @@
               "temperature_k": 298.15,
               "wavelength_nm": null
             },
-            "software_version": "0.6.0",
+            "software_version": "0.6.1",
             "source": {
               "kind": "legacy_series",
               "name": "synthetic_noisy.csv",
@@ -10891,7 +10891,7 @@
               "temperature_k": 298.15,
               "wavelength_nm": null
             },
-            "software_version": "0.6.0",
+            "software_version": "0.6.1",
             "source": {
               "kind": "legacy_series",
               "name": "synthetic_noisy.csv",
@@ -11871,7 +11871,7 @@
               "temperature_k": 298.15,
               "wavelength_nm": null
             },
-            "software_version": "0.6.0",
+            "software_version": "0.6.1",
             "source": {
               "kind": "legacy_series",
               "name": "synthetic_partial.csv",
@@ -12840,7 +12840,7 @@
               "temperature_k": 298.15,
               "wavelength_nm": null
             },
-            "software_version": "0.6.0",
+            "software_version": "0.6.1",
             "source": {
               "kind": "legacy_series",
               "name": "synthetic_partial.csv",
@@ -14294,7 +14294,7 @@
               "temperature_k": 298.15,
               "wavelength_nm": null
             },
-            "software_version": "0.6.0",
+            "software_version": "0.6.1",
             "source": {
               "kind": "legacy_series",
               "name": "synthetic_replicate.csv",
@@ -15737,7 +15737,7 @@
               "temperature_k": 298.15,
               "wavelength_nm": null
             },
-            "software_version": "0.6.0",
+            "software_version": "0.6.1",
             "source": {
               "kind": "legacy_series",
               "name": "synthetic_replicate.csv",

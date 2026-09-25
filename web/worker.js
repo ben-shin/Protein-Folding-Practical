@@ -1,6 +1,7 @@
 // All measurement parsing and fitting takes place inside this worker.
 // Only fixed runtime/core assets are requested; measurements never enter a URL.
 const RUNTIME = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/";
+const RELEASE_ID = new URL(import.meta.url).pathname.match(/\/releases\/([a-f0-9]{20})\/worker\.js$/)?.[1];
 let runtimePromise;
 let runtimeReady = false;
 let fittingReady = false;
@@ -13,12 +14,21 @@ async function loadRuntime() {
   return py;
 }
 async function loadCore() {
-  const manifestResponse = await fetch("./build-manifest.json");
+  const manifestResponse = await fetch("./build-manifest.json", {
+    cache: RELEASE_ID ? "default" : "no-store"
+  });
   if (!manifestResponse.ok) throw new Error("Could not load the application manifest. Reload this page.");
   const manifest = await manifestResponse.json();
+  if (RELEASE_ID && manifest.build_id !== RELEASE_ID) {
+    throw new Error("Application version mismatch. Reload the latest release before analyzing data.");
+  }
   // Fetch and verify independent modules together, while Python downloads.
   const modules = await Promise.all(Object.entries(manifest.core_sha256).map(async ([name, expected]) => {
-    const response = await fetch(`./core/folding_practical/${name}`);
+    // Release paths are immutable. Legacy root entry points must revalidate
+    // against the current manifest instead of reusing a previous deployment.
+    const coreURL = new URL(`./core/folding_practical/${name}`, import.meta.url);
+    if (!RELEASE_ID) coreURL.searchParams.set("v", expected);
+    const response = await fetch(coreURL, {cache: RELEASE_ID ? "default" : "no-cache"});
     if (!response.ok) throw new Error(`Missing analysis module: ${name}`);
     const bytes = new Uint8Array(await response.arrayBuffer());
     const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), b => b.toString(16).padStart(2,"0")).join("");

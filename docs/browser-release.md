@@ -94,6 +94,29 @@ Python modules. It never copies `README.md`, `docs/`, `examples/`, uploads, coho
 metadata or desktop code. A generated manifest records Python module hashes and
 runtime versions; the worker verifies these before importing the core.
 
+## Browser updates and cached files
+
+Version 0.6.1 pins every application asset and Python module to a deterministic
+`releases/<build_id>/` directory. The root page points into that directory, and
+the worker verifies that its manifest belongs to the same release. Updating only
+the Python example still changes the JavaScript, worker, and stylesheet URLs
+used by the next page load. Stable worker paths remain compatible with older
+pages, but refresh the manifest and address Python modules by their content hash.
+
+GitHub Pages can cache files for 10 minutes. A page already running the pre-0.6.1
+JavaScript cannot update itself; open `index.html?release=<current build_id>` to
+request a fresh page without clearing saved projects or browser storage, then
+select **Example · 16 points**. Recovering an old project preserves its original
+observations. The runtime initially displays analysis version 0.6.1.
+
+The build manifest includes the current release entry path for verification.
+That path identifies the deployed snapshot; older release directories are not
+retained by later deployments. Bookmark the canonical application URL.
+
+Regression tests use genuine browser HTTP caching to load a 12-point release,
+switch the served deployment, and confirm the next release gives 16 points,
+including when the old page itself remains cached.
+
 ## Performance changes
 
 The worker downloads and verifies independent application modules while Python
