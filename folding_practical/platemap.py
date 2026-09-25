@@ -49,7 +49,7 @@ CELL_PADDING = 2
 
 
 def group_palette(names: Iterable[str]) -> dict[str, tuple[str, str]]:
-    """Map group names onto stable (fill, outline) colour pairs."""
+    """Map group names onto stable (fill, outline) color pairs."""
     return {name: GROUP_FILLS[index % len(GROUP_FILLS)] for index, name in enumerate(names)}
 
 

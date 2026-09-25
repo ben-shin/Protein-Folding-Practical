@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-US">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="Protein denaturation analysis.">
@@ -43,23 +43,32 @@
       </section>
       <section id="results" class="card" aria-live="polite"><div class="section-label"><h2>Results</h2><span id="result-badge" class="badge">Awaiting data</span></div><div id="result-content"></div></section>
       <details class="card" id="preview-details"><summary>Data &amp; exclusions <span id="row-count" class="muted"></span></summary><p id="measurement-summary" class="small"></p><div class="table-wrap"><table id="preview"><thead><tr><th scope="col">Use</th><th scope="col">Source row / well</th><th scope="col">GuHCl (M)</th><th scope="col">Signal</th><th scope="col">Exclusion reason</th></tr></thead><tbody></tbody></table></div></details>
-      <details class="card"><summary>Model details</summary><div class="prose"><p>Two-state: ΔG<sub>unfold</sub>([D]) = ΔG°<sub>H₂O</sub> − m[D]; C<sub>m</sub> = ΔG°<sub>H₂O</sub>/m. Linear baselines. Thermodynamic interpretation requires equilibrium and reversible two-state behaviour.</p><p>Logistic: constant baselines; descriptive, not evidence of mechanism. SE values are local covariance estimates. Fits use raw or explicitly blank-corrected fluorescence; min–max scaling is not fraction folded.</p><p>AIC/BIC/AICc assume independent Gaussian errors with a shared estimated variance, included in the parameter count. AICc is unavailable when n ≤ k + 1. Comparisons require identical observations and response scale.</p><p>Files and calculations stay in the browser. Autosave uses local storage. Python packages load from jsDelivr; startup requires internet access.</p></div></details>
+      <details class="card"><summary>Model details</summary><div class="prose"><p>Two-state: ΔG<sub>unfold</sub>([D]) = ΔG°<sub>H₂O</sub> − m[D]; C<sub>m</sub> = ΔG°<sub>H₂O</sub>/m. Linear baselines. Thermodynamic interpretation requires equilibrium and reversible two-state behavior.</p><p>Logistic: constant baselines; descriptive, not evidence of mechanism. SE values are local covariance estimates. Fits use raw or explicitly blank-corrected fluorescence; min–max scaling is not fraction folded.</p><p>AIC/BIC/AICc assume independent Gaussian errors with a shared estimated variance, included in the parameter count. AICc is unavailable when n ≤ k + 1. Comparisons require identical observations and response scale.</p><p>Files and calculations stay in the browser. Autosave uses local storage. Python packages load from jsDelivr; startup requires internet access.</p></div></details>
     </div>
   </section>
   <details id="instructor" class="card plate-data"><summary>Plate data</summary>
+      <div class="actions"><label class="button" for="plate-file">Open plate CSVs</label><input id="plate-file" type="file" accept=".csv,text/csv" multiple class="file-input"><button id="example-plate">Example plate</button></div><p id="plate-source" class="small muted">No plate</p>
+    <div class="actions"><label class="button" for="group-list-file">Open group list CSV</label><input id="group-list-file" type="file" accept=".csv,text/csv" class="file-input"><button id="group-template">Group list template</button></div>
+    <p id="group-list-source" class="small muted">No group list</p>
+    <label for="group-concentrations">Default GuHCl concentrations (M)</label><input id="group-concentrations" value="0, 0.4, 0.8, 1.2, 1.6, 2, 2.4, 2.8, 3.2, 3.6, 4, 4.4, 4.8, 5.2, 5.6, 6">
+    <p class="small muted">16 conditions, 0–6 M. A concentrations column in the group list overrides these defaults. Well ranges follow plate order: A1–B4 means A1–A12, then B1–B4.</p>
+    <p class="small muted">Group lists use raw fluorescence and the signal / emission selections below. Repeated-read settings apply unless a repeat_policy column overrides them.</p>
+    <button id="prepare-group-list" class="primary" disabled>Prepare group list</button>
+    <p id="group-list-status" class="small" role="status" aria-live="polite"></p><ul id="group-list-errors" class="small" hidden></ul>
     <div class="plate-layout"><div>
-      <div class="actions"><label class="button" for="plate-file">Open plate CSV</label><input id="plate-file" type="file" accept=".csv,text/csv" class="file-input"><button id="example-plate">Example plate</button></div><p id="plate-source" class="small muted">No plate</p>
       <label for="plate-id">Plate</label><select id="plate-id"></select><label for="measurement">Signal / excitation</label><select id="measurement"></select><label for="wavelength">Emission (nm)</label><select id="wavelength"></select>
       <label for="repeat-policy">Repeated reads</label><select id="repeat-policy"><option value="reject">Reject ambiguous reads</option><option value="select">Select one acquisition</option><option value="mean">Average technical replicates</option></select>
       <label for="acquisition">Acquisition</label><select id="acquisition"></select><label for="replicate-label">Replicate description</label><input id="replicate-label">
-    </div><div><div id="plate-map" class="plate-map" role="group" aria-label="96-well plate: select wells in concentration order"></div>
+    </div><div><h3>Manual group</h3><div id="plate-map" class="plate-map" role="group" aria-label="96-well plate: select wells in concentration order"></div>
       <label for="assigned-wells">Wells, in order</label><input id="assigned-wells" placeholder="A1, A2, A3">
       <label for="concentrations">GuHCl concentrations (M)</label><textarea id="concentrations" rows="2" placeholder="0, 0.4, 0.8"></textarea>
       <div class="two-fields"><div><label for="prepared-name">Group name</label><input id="prepared-name" value="Group 1" maxlength="100"></div><div><label for="blank-wells">Blank wells</label><input id="blank-wells" placeholder="H11, H12"></div></div>
-      <label class="check-label"><input id="blank-enabled" type="checkbox"> Subtract mean blank</label><button id="prepare" class="primary" disabled>Add group</button>
+      <label class="check-label"><input id="blank-enabled" type="checkbox"> Subtract mean blank for manual group</label><button id="prepare" class="primary" disabled>Add group</button>
     </div></div>
     <details id="spectrum-preview" hidden><summary>Emission spectrum</summary><p id="spectrum-caption" class="small muted"></p><div id="spectrum-plot"></div></details>
-    <div class="practical-export"><p><span id="prepared-count">0</span> groups</p><label class="check-label"><input id="lock-settings" type="checkbox"> Lock temperature and model</label><button id="save-practical" disabled>Save all groups</button></div>
+    <div id="group-exports" class="table-wrap" hidden><table><thead><tr><th scope="col">Group</th><th scope="col">Conditions</th><th scope="col">Signal / emission</th><th scope="col">Export</th></tr></thead><tbody id="group-export-rows"></tbody></table></div>
+    <p class="small muted">Group CSVs contain concentrations, raw fluorescence, and normalized fluorescence. Each group can open its CSV for analysis. Project files preserve exclusions, blank correction, and metadata.</p>
+    <div class="practical-export"><button id="save-group-csvs" disabled>Download group CSVs</button><p><span id="prepared-count">0</span> groups</p><label class="check-label"><input id="lock-settings" type="checkbox"> Lock temperature and model</label><button id="save-practical" disabled>Save all groups</button></div>
   </details>
 </main>
 </body></html>

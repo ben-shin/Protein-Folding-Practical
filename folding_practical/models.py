@@ -14,7 +14,6 @@ import warnings as python_warnings
 from typing import Callable, Optional
 
 import numpy as np
-from scipy.optimize import OptimizeWarning, curve_fit
 
 R_KJ_PER_MOL_K = 0.008314462618
 
@@ -25,7 +24,7 @@ class FitResult:
 
     The fields that pre-date the diagnostic API remain unchanged.  ``success``
     means that the numerical optimization produced a finite solution.
-    ``interpretation_status`` is the independent scientific quality judgement.
+    ``interpretation_status`` is the independent scientific quality judgment.
     """
 
     model_name: str
@@ -232,8 +231,12 @@ def _bounded_multistart(
     upper: np.ndarray,
     *,
     maxfev_per_start: int,
+    jacobian: Optional[Callable[..., np.ndarray]] = None,
 ) -> _MultiStartResult:
     """Run a deterministic, explicitly bounded number of bounded fits."""
+    # Import/export and plate preparation do not need the SciPy runtime.
+    from scipy.optimize import OptimizeWarning, curve_fit
+
     starts = _deduplicate_starts(starts)
     candidates: list[tuple[float, np.ndarray, np.ndarray, np.ndarray]] = []
     warning_messages: list[str] = []
@@ -251,6 +254,7 @@ def _bounded_multistart(
                     p0=clipped,
                     bounds=(lower, upper),
                     maxfev=maxfev_per_start,
+                    jac=jacobian,
                 )
             warning_messages.extend(str(item.message) for item in caught)
             predicted = np.asarray(model(x, *popt), dtype=float)
@@ -312,6 +316,26 @@ def four_parameter_logistic(
     return low_denaturant_signal + (high_denaturant_signal - low_denaturant_signal) * fraction_high_denaturant
 
 
+def _four_parameter_logistic_jacobian(
+    concentration: np.ndarray,
+    low_denaturant_signal: float,
+    high_denaturant_signal: float,
+    midpoint_m: float,
+    width_m: float,
+) -> np.ndarray:
+    """Exact derivatives avoid four extra model evaluations per solver step."""
+    scaled = (concentration - midpoint_m) / width_m
+    fraction = 1.0 / (1.0 + np.exp(-np.clip(scaled, -700, 700)))
+    # The public model clips the exponent; its derivative is zero outside it.
+    transition = (high_denaturant_signal - low_denaturant_signal) * fraction * (1.0 - fraction)
+    transition *= (scaled > -700) & (scaled < 700)
+    midpoint_derivative = -transition / width_m
+    return np.column_stack((
+        1.0 - fraction, fraction, midpoint_derivative,
+        midpoint_derivative * scaled,
+    ))
+
+
 def two_state_denaturation_signal(
     concentration: np.ndarray,
     folded_intercept: float,
@@ -327,6 +351,30 @@ def two_state_denaturation_signal(
     delta_g = delta_g_h2o_kj_mol - m_value_kj_mol_m * concentration
     fraction_unfolded = 1.0 / (1.0 + np.exp(np.clip(delta_g / (R_KJ_PER_MOL_K * temperature_k), -700, 700)))
     return folded_baseline * (1.0 - fraction_unfolded) + unfolded_baseline * fraction_unfolded
+
+
+def _two_state_denaturation_jacobian(
+    concentration: np.ndarray,
+    folded_intercept: float,
+    folded_slope: float,
+    unfolded_intercept: float,
+    unfolded_slope: float,
+    delta_g_h2o_kj_mol: float,
+    m_value_kj_mol_m: float,
+    temperature_k: float,
+) -> np.ndarray:
+    """Exact derivatives for the six fitted parameters, at fixed temperature."""
+    rt = R_KJ_PER_MOL_K * temperature_k
+    scaled = (delta_g_h2o_kj_mol - m_value_kj_mol_m * concentration) / rt
+    unfolded = 1.0 / (1.0 + np.exp(np.clip(scaled, -700, 700)))
+    folded = 1.0 - unfolded
+    separation = (unfolded_intercept - folded_intercept) + (unfolded_slope - folded_slope) * concentration
+    transition = separation * unfolded * folded / rt
+    transition *= (scaled > -700) & (scaled < 700)
+    return np.column_stack((
+        folded, concentration * folded, unfolded, concentration * unfolded,
+        -transition, concentration * transition,
+    ))
 
 
 def _fraction_coverage_diagnostics(x: np.ndarray, fraction: np.ndarray) -> dict[str, object]:
@@ -616,6 +664,7 @@ def fit_four_parameter_logistic(x: np.ndarray, y: np.ndarray) -> FitResult:
             lower,
             upper,
             maxfev_per_start=20_000,
+            jacobian=_four_parameter_logistic_jacobian,
         )
         popt = multi.parameters
         covariance = multi.covariance
@@ -691,6 +740,9 @@ def fit_two_state_denaturation(x: np.ndarray, y: np.ndarray, temperature_k: floa
         def model(values: np.ndarray, *parameters: float) -> np.ndarray:
             return two_state_denaturation_signal(values, *parameters, temperature_k=float(temperature_k))
 
+        def jacobian(values: np.ndarray, *parameters: float) -> np.ndarray:
+            return _two_state_denaturation_jacobian(values, *parameters, temperature_k=float(temperature_k))
+
         baseline_low = float(np.min(y_array) - 10 * y_range)
         baseline_high = float(np.max(y_array) + 10 * y_range)
         max_slope = 20 * y_range / x_range
@@ -720,6 +772,7 @@ def fit_two_state_denaturation(x: np.ndarray, y: np.ndarray, temperature_k: floa
             lower,
             upper,
             maxfev_per_start=30_000,
+            jacobian=jacobian,
         )
         popt = multi.parameters
         covariance = multi.covariance

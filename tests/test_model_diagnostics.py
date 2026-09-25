@@ -38,7 +38,7 @@ def test_success_is_separate_from_flat_curve_interpretability():
 
 
 def test_partial_curve_is_not_reported_as_interpretable():
-    # These points sample only the folded side of a transition centred at 3.2 M.
+    # These points sample only the folded side of a transition centered at 3.2 M.
     x = np.linspace(0.0, 2.0, 14)
     result = fit_two_state_denaturation(x, _two_state_signal(x))
 

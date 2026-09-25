@@ -43,9 +43,18 @@ guaranteed by this release.
 
 ## Instructor route
 
-Open the instructor workspace, load a plate CSV (or the synthetic plate), and
-select the plate, signal, excitation/emission and acquisition policy. Assign
-ordered wells to explicit concentrations using the plate map or text fields.
+Expand **Plate data**, use **Open plate CSVs** to select the plate exports, then
+**Open group list CSV** to load the group assignments. Confirm the shared signal,
+emission, repeated-read policy, and concentrations before **Prepare group list**.
+Review any row errors, then use **Download group CSVs** to download a ZIP containing
+one three-column denaturation CSV per valid group. Give each group only its file;
+students open it using **Open CSV**. A downloadable group-list template and the
+repository README describe the accepted headers and optional overrides.
+
+The default series and both built-in synthetic examples have 16 points, from
+0 to 6 M GuHCl in 0.4 M steps. A1–B4 is a row-major run of 16 wells.
+For manual preparation, select the plate, signal, excitation/emission, and
+acquisition policy, then assign ordered wells and concentrations on the map.
 Optional blank correction subtracts the mean of selected blank wells, with
 that choice recorded in the project. Repeated reads require an explicit
 selection or a declaration that averaging is appropriate for technical
@@ -61,7 +70,7 @@ through appropriate course systems rather than public source or build assets.
 The two-state model retains concentration-dependent folded and unfolded
 baselines and the original unfolding-free-energy convention. Midpoint errors
 retain the covariance between free energy and m-value. Local covariance errors
-are approximate, and equilibrium, reversibility and two-state behaviour still
+are approximate, and equilibrium, reversibility and two-state behavior still
 require experimental support. Insufficient/flat/partial data can produce an
 explicit insufficient-information result.
 
@@ -80,10 +89,42 @@ service. Browser tests inspect requests while importing/fitting marker data.
 Local autosave stores measurements in this browser profile, so download and
 reset when working on a shared classroom machine.
 
-`scripts/build_web.py` includes only an explicit list of web assets and seven
-Python modules. It never copies `examples/`, uploads, cohort exports, repository
+`scripts/build_web.py` includes only an explicit list of web assets and eight
+Python modules. It never copies `README.md`, `docs/`, `examples/`, uploads, cohort exports, repository
 metadata or desktop code. A generated manifest records Python module hashes and
 runtime versions; the worker verifies these before importing the core.
+
+## Performance changes
+
+The worker downloads and verifies independent application modules while Python
+and its initial packages load. SciPy is downloaded only for the first fit, so
+plate preparation and CSV export need only NumPy and pandas. Requests retain
+strict JSON handling, module digest verification, and cancellation/retry behavior.
+
+Both solvers now supply exact derivatives to the same bounded multistart
+optimization. The existing start points, bounds, equations, and interpretation
+checks remain in place. On a local Python 3.12 / NumPy 2.0.2 / SciPy 1.14.1 run,
+16-point fits needed about 80% fewer model evaluations for logistic fitting and
+85% fewer for two-state fitting. Median timings in repeated runs were roughly
+1.6 times faster for logistic and 1.8–2.1 times faster for two-state fitting.
+These are native benchmark measurements, not a browser/device latency guarantee.
+Predictions differed by at most about 1.1e-6 signal units in the benchmark cases,
+with matching interpretation statuses; separate tests verify browser/native parity.
+
+Reproduce the comparison against numerical differentiation:
+
+```sh
+OPENBLAS_NUM_THREADS=1 python scripts/benchmark_models.py
+```
+
+Large imports use a per-measurement row index; plate buttons are reused instead
+of rebuilt on each click. Observation-table inputs are created only when opened.
+Batch preparation validates the full plate collection once and prepares each
+group from the relevant subset. Repeated source filenames are deduplicated when
+resolving plate aliases. On the original 10-plate, 55-group dataset, deduplicating
+these names reduced native preparation from 6.38 to 2.21 seconds (about 2.9 times
+faster, averaging two runs), with identical preparation responses. Exported
+concentrations, raw values, and normalized values match the original group files.
 
 ## Reproduce and deploy
 

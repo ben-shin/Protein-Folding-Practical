@@ -1636,14 +1636,16 @@ def _load_practical(request: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _synthetic_plate_text() -> str:
-    sample = [1008, 1001, 975, 910, 760, 550, 350, 220, 145, 112, 103, 98]
+    # Match the practical: 16 conditions across A1-A12, then B1-B4.
+    sample = [1008, 1006, 996, 980, 940, 875, 760, 610, 440, 295, 190, 135, 113, 103, 99, 98]
     blanks = [20, 21, 19, 20] + [""] * 8
     output = io.StringIO()
     writer = csv.writer(output, lineterminator="\n")
     writer.writerow(["Synthetic teaching example only"])
     writer.writerow(["", "Raw Data (Em Spectrum) 472-16 / 508-10"])
     writer.writerow([""] + list(range(1, 13)))
-    writer.writerow(["A"] + sample)
+    writer.writerow(["A"] + sample[:12])
+    writer.writerow(["B"] + sample[12:] + [""] * 8)
     writer.writerow(["H"] + blanks)
     return output.getvalue()
 
@@ -1652,7 +1654,8 @@ def _example_plate(_: Mapping[str, Any]) -> dict[str, Any]:
     text = _synthetic_plate_text()
     filename = "synthetic_teaching_plate.csv"
     plate = _import_plate({"text": text, "filename": filename})["plate"]
-    concentrations = [0.0, 0.55, 1.1, 1.65, 2.2, 2.75, 3.3, 3.85, 4.4, 4.95, 5.5, 6.0]
+    concentrations = [index * 4 / 10 for index in range(16)]
+    wells = [f"A{index}" for index in range(1, 13)] + [f"B{index}" for index in range(1, 5)]
     prepare_request = {
         "action": "prepare_group",
         "plate": plate,
@@ -1666,8 +1669,8 @@ def _example_plate(_: Mapping[str, Any]) -> dict[str, Any]:
             "temperature_k": 298.15,
         },
         "wells": [
-            {"well": f"A{index + 1}", "concentration_m": value}
-            for index, value in enumerate(concentrations)
+            {"well": well, "concentration_m": value}
+            for well, value in zip(wells, concentrations)
         ],
         "blank_correction": {
             "enabled": True,
@@ -1691,6 +1694,11 @@ def _example(request: Mapping[str, Any]) -> dict[str, Any]:
     return {"project": example["project"]}
 
 
+def _batch_action(action: str, request: Mapping[str, Any]) -> dict[str, Any]:
+    from . import browser_batch
+    return getattr(browser_batch, action)(request)
+
+
 _ACTIONS: dict[str, Callable[[Mapping[str, Any]], dict[str, Any]]] = {
     "example": _example,
     "example_plate": _example_plate,
@@ -1700,6 +1708,9 @@ _ACTIONS: dict[str, Callable[[Mapping[str, Any]], dict[str, Any]]] = {
         request,
     ),
     "import_plate": _import_plate,
+    "import_plates": lambda request: _batch_action("import_plates", request),
+    "prepare_groups": lambda request: _batch_action("prepare_groups", request),
+    "export_group_csvs": lambda request: _batch_action("export_group_csvs", request),
     "prepare_group": _prepare_group,
     "validate_project": _validate_project_action,
     "load_project": _load_project,

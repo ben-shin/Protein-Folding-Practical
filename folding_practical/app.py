@@ -439,7 +439,7 @@ class FoldingPracticalApp(tk.Tk):
         self.group_tree.configure(yscrollcommand=group_scroll.set)
 
     def _build_plate_legend(self, parent: ttk.Frame) -> None:
-        """Small colour key so the plate map explains itself."""
+        """Small color key so the plate map explains itself."""
         legend = ttk.Frame(parent)
         legend.pack(side="right")
         for text, color in (
@@ -1531,7 +1531,7 @@ class FoldingPracticalApp(tk.Tk):
             "Cm = ΔG°H2O / m",
             "The 4PL logistic model is descriptive and does not independently establish a folding free energy.",
             "AICc comparisons are meaningful only for fits to the same observations and response variable.",
-            "Equilibrium, reversibility and two-state behaviour require experimental evidence.",
+            "Equilibrium, reversibility and two-state behavior require experimental evidence.",
             "Calculation success is separate from scientific interpretation status; inspect all warnings.",
             "AIC/AICc/BIC assume independent Gaussian errors and count estimated residual variance as a parameter.",
             "",

@@ -3,7 +3,8 @@ const STORE = "protein-folding-practical.session.v1";
 const MAX_FILE = 2_000_000;
 let project = null, plate = null, prepared = [], locks = {}, activeFit = 0, activePreparedIndex = -1;
 let worker = null, nextId = 0, pending = new Map(), busy = false, revision = 0;
-let saveTimer;
+let saveTimer, groupList = null, previewDirty = true, activeTask = null;
+let plateRowsByMeasurement = new Map();
 
 function element(tag, text, className) {
   const el = document.createElement(tag);
@@ -27,10 +28,13 @@ function updateControls() {
   if (project && locks.model) $("model").disabled = true;
   for (const id of ["fit","save-project","save-csv"]) $(id).disabled = !project || busy;
   for (const id of ["save-report","save-figure"]) $(id).disabled = !project?.result || busy;
-  for (const id of ["example","example-plate","series-file","project-file","plate-file"]) $(id).disabled = busy;
+  for (const id of ["example","example-plate","series-file","project-file","plate-file","group-list-file","group-template","group-concentrations"]) $(id).disabled = busy;
   $("prepare").disabled = !plate || busy;
   $("save-practical").disabled = !prepared.length || busy;
+  $("save-group-csvs").disabled = !prepared.length || busy;
+  $("prepare-group-list").disabled = !plate || !groupList || busy;
   $("group-picker").disabled = busy;
+  for(const button of $("plate-map").children)button.disabled=busy||button.classList.contains("unavailable");
 }
 function ensureWorker() {
   if (worker) return;
@@ -52,11 +56,13 @@ function ensureWorker() {
     event.preventDefault(); stopWorker("The browser could not start Python. Check your connection, then try again.");
   };
 }
-function stopWorker(reason = "Cancelled. Data retained.") {
+function stopWorker(reason = "Canceled. Data retained.") {
+  activeTask?.abort(new Error(reason));activeTask=null;
   worker?.terminate(); worker = null;
   for (const job of pending.values()) {clearTimeout(job.timeout); job.reject(new Error(reason));}
   pending.clear(); $("runtime-status").textContent = "Python stopped. The next action will restart it.";
   setBusy(false);
+  message(reason,reason!=="Canceled. Data retained.");
 }
 function request(payload) {
   ensureWorker(); const id = ++nextId;
@@ -67,15 +73,22 @@ function request(payload) {
 }
 async function task(fn) {
   if (busy) return;
+  const controller=new AbortController();activeTask=controller;
   $("error").hidden = true; setBusy(true);
-  try {await fn();} catch (error) {message(error.message || String(error),true);}
-  finally {setBusy(false);}
+  try {await fn(controller.signal);}
+  catch (error) {if(activeTask===controller)message(error.message || String(error),true);}
+  finally {if(activeTask===controller){activeTask=null;setBusy(false);}}
 }
 function syncPrepared() {
   if(project && activePreparedIndex>=0 && activePreparedIndex<prepared.length) {
     prepared[activePreparedIndex]=structuredClone(project);
     const option=$("group-picker").options[activePreparedIndex];
     if(option)option.textContent=project.settings.group_name||`Group ${activePreparedIndex+1}`;
+    const row=$("group-export-rows").children[activePreparedIndex];
+    if(row){
+      row.firstElementChild.textContent=project.settings.group_name;
+      row.querySelector("button").setAttribute("aria-label",`Download CSV for ${project.settings.group_name}`);
+    }
   }
 }
 function autosave() {
@@ -125,6 +138,9 @@ function renderPreview() {
   const excluded=project.observations.filter(row=>row.excluded).length;
   $("row-count").textContent = `${project.observations.length} rows · ${excluded} excluded`;
   $("measurement-summary").textContent = metadataText();
+  previewDirty = !$("preview-details").open;
+  if (previewDirty) return;
+  const fragment = document.createDocumentFragment();
   for (const row of project.observations) {
     const tr=element("tr"); const use=document.createElement("input"); use.type="checkbox";
     use.checked=!row.excluded; use.setAttribute("aria-label",`Include ${row.row_id}`);
@@ -145,9 +161,13 @@ function renderPreview() {
     for (const item of [use,source,number(row.concentration_m,4),number(selectedSignal(row),5),reason]) {
       const td=element("td"); item instanceof Node ? td.append(item) : td.textContent=item;tr.append(td);
     }
-    body.append(tr);
+    fragment.append(tr);
   }
+  body.append(fragment);
 }
+$("preview-details").addEventListener("toggle",()=>{
+  if ($("preview-details").open && previewDirty) renderPreview();
+});
 
 const SVG="http://www.w3.org/2000/svg";
 function svgNode(tag,attrs={},text) {
@@ -234,11 +254,14 @@ function renderResults() {
   details.append(element("pre",JSON.stringify({parameters:fit.parameters,standard_errors:fit.standard_errors,metrics:fit.metrics,diagnostics:fit.diagnostics},null,2),"details-json"));content.append(details);
 }
 
-async function readFile(file) {
+async function readFile(file,signal=activeTask?.signal) {
   if(!file) return null;
+  signal?.throwIfAborted();
   if(file.size>MAX_FILE) throw new Error("File exceeds 2 MB. Use a smaller CSV or project.");
   const bytes=await file.arrayBuffer();
+  signal?.throwIfAborted();
   const hash=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",bytes)),b=>b.toString(16).padStart(2,"0")).join("");
+  signal?.throwIfAborted();
   let text,encoding="utf-8";
   try{text=new TextDecoder("utf-8",{fatal:true}).decode(bytes);}catch{encoding="windows-1252";text=new TextDecoder(encoding).decode(bytes);}
   return {filename:file.name,text,source_bytes_sha256:hash,source_encoding:encoding};
@@ -248,14 +271,30 @@ function download(text,filename,mime="application/json") {
   link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),10_000);
 }
 async function exportAction(action) {
-  const data=await request({action,project,include_excluded:true});download(data.text,data.filename,data.mime);
-  if(action==="export_legacy_csv") message("Raw CSV exported. Only project JSON preserves exclusions, blank correction and metadata.");
+  const data=await request({action,project,include_excluded:true,...(action==="export_legacy_csv"?{normalization:"minmax"}:{})});download(data.text,data.filename,data.mime);
+  if(action==="export_legacy_csv") message(["Raw CSV exported. Only project JSON preserves exclusions, blank correction, and metadata.",...(data.warnings||[])].join(" "));
 }
 function renderGroups() {
   const select=$("group-picker");select.replaceChildren();
   prepared.forEach((p,i)=>{const option=element("option",p.settings.group_name||`Group ${i+1}`);option.value=i;select.append(option);});
   select.hidden=prepared.length<2;$("group-picker-label").hidden=select.hidden;
-  $("prepared-count").textContent=prepared.length;updateControls();
+  $("prepared-count").textContent=prepared.length;
+  const rows=$("group-export-rows");rows.replaceChildren();
+  prepared.forEach((p,index)=>{
+    const row=element("tr"),settings=p.settings;
+    for(const value of [settings.group_name,p.observations.length,`${settings.measurement||"Signal"} / ${settings.wavelength_nm??"—"} nm`])row.append(element("td",value));
+    const cell=element("td"),button=element("button","CSV");
+    button.setAttribute("aria-label",`Download CSV for ${settings.group_name}`);
+    button.addEventListener("click",()=>task(async()=>{
+      syncPrepared();
+      const data=await request({action:"export_legacy_csv",project:prepared[index],include_excluded:true,normalization:"minmax"});
+      download(data.text,data.filename,data.mime);
+      if(data.warnings?.length)message(data.warnings.join(" "));
+    }));
+    cell.append(button);row.append(cell);rows.append(row);
+  });
+  $("group-exports").hidden=!prepared.length;
+  updateControls();
 }
 function saveFigure() {
   const main=$("plot").querySelector("svg"),residual=$("residual-plot").querySelector("svg");
@@ -278,7 +317,10 @@ $("project-file").addEventListener("change",event=>task(async()=>{
   if(parsed.schema_version==="practical-1.0"){
     const data=await request({action:"load_practical",...file});const practical=data.practical||data;
     activePreparedIndex=-1;prepared=practical.projects;locks=practical.instructor_locks||{};renderGroups();setProject(structuredClone(prepared[practical.selected_index||0]),{keepLocks:true,preparedIndex:practical.selected_index||0});
-  }else {activePreparedIndex=-1;prepared=[];renderGroups();setProject(projectData(await request({action:"load_project",...file})));}
+  }else {
+    const loaded=projectData(await request({action:"load_project",...file}));
+    activePreparedIndex=-1;prepared=[];renderGroups();setProject(loaded);
+  }
   message("Project loaded. Refit required.");
 }));
 $("group-picker").addEventListener("change",()=>{const index=Number($("group-picker").value);syncPrepared();setProject(structuredClone(prepared[index]),{keepLocks:true,preparedIndex:index});});
@@ -294,7 +336,7 @@ $("fit").addEventListener("click",()=>task(async()=>{
   $("fit-state").textContent="Fitting…";
   const data=await request({action:"fit",project,model:$("model").value});
   if(currentRevision!==revision)return;
-  project=data.project;activeFit=0;renderResults();renderPlots();autosave();
+  project=data.project;activeFit=0;renderPreview();renderResults();renderPlots();autosave();
   $("fit-state").textContent="Fit complete";
 }));
 for(const [id,action] of [["save-project","export_project"],["save-csv","export_legacy_csv"],["save-report","export_report"]]) $(id).addEventListener("click",()=>task(()=>exportAction(action)));
@@ -321,28 +363,55 @@ function fillSelect(select,items,label=String) {
 function currentMeasurement(){return plate?.measurements.find(m=>m.plate_id===$("plate-id").value&&m.measurement===$("measurement").value);}
 function updateMeasurementOptions(){
   const m=currentMeasurement();fillSelect($("wavelength"),m?.wavelengths_nm?.length?m.wavelengths_nm:[""],v=>v===""?"Not recorded":`${v} nm`);
+  if(m?.wavelengths_nm?.includes(508))$("wavelength").value="508";
   fillSelect($("acquisition"),m?.acquisition_ids||[]);renderPlateMap();
 }
 function updatePlateOptions(){
   fillSelect($("measurement"),[...new Set(plate.measurements.filter(m=>m.plate_id===$("plate-id").value).map(m=>m.measurement))]);updateMeasurementOptions();
 }
 function loadPlate(value){
-  plate=value;$("plate-source").textContent=`${plate.source.name} · ${plate.rows.length} records`;
+  plate=value;$("plate-source").textContent=`${plate.source.name} · ${plate.plate_ids.length} plate${plate.plate_ids.length===1?"":"s"} · ${plate.rows.length} records`;
+  plateRowsByMeasurement=new Map();
+  for(const row of plate.rows){
+    const key=JSON.stringify([row.plate_id,row.measurement]);
+    let records=plateRowsByMeasurement.get(key);
+    if(!records){records=[];plateRowsByMeasurement.set(key,records);}
+    records.push(row);
+  }
   fillSelect($("plate-id"),plate.plate_ids);updatePlateOptions();updateControls();
 }
 function orderedWells(){return $("assigned-wells").value.split(/[\s,;]+/).filter(Boolean).map(v=>v.toUpperCase());}
+function currentPlateRows(){
+  return plateRowsByMeasurement.get(JSON.stringify([$("plate-id").value,$("measurement").value]))||[];
+}
 function renderPlateMap(){
-  const grid=$("plate-map");grid.replaceChildren();const selected=orderedWells();
-  const available=new Set((plate?.rows||[]).filter(r=>r.plate_id===$("plate-id").value&&r.measurement===$("measurement").value).map(r=>r.well));
-  for(const row of "ABCDEFGH")for(let col=1;col<=12;col++){
-    const well=`${row}${col}`,index=selected.indexOf(well);const button=element("button",well,`well ${index>=0?"selected":""} ${!available.has(well)?"unavailable":""}`);
-    button.type="button";button.disabled=!available.has(well);button.setAttribute("aria-pressed",String(index>=0));button.setAttribute("aria-label",`${well}${index>=0?`, condition ${index+1}`:""}`);
-    button.addEventListener("click",()=>{const current=orderedWells();const at=current.indexOf(well);if(at>=0)current.splice(at,1);else current.push(well);$("assigned-wells").value=current.join(", ");renderPlateMap();});grid.append(button);
+  const grid=$("plate-map"),selected=orderedWells();
+  const available=new Set(currentPlateRows().map(row=>row.well));
+  if(!grid.children.length){
+    const fragment=document.createDocumentFragment();
+    for(const row of "ABCDEFGH")for(let col=1;col<=12;col++){
+      const well=`${row}${col}`,button=element("button",well,"well");
+      button.type="button";button.dataset.well=well;fragment.append(button);
+    }
+    grid.append(fragment);
+  }
+  for(const button of grid.children){
+    const well=button.dataset.well,index=selected.indexOf(well);
+    button.classList.toggle("selected",index>=0);button.classList.toggle("unavailable",!available.has(well));
+    button.disabled=!available.has(well)||busy;button.setAttribute("aria-pressed",String(index>=0));
+    button.setAttribute("aria-label",`${well}${index>=0?`, condition ${index+1}`:""}`);
   }
   renderSpectrum();
 }
+$("plate-map").addEventListener("click",event=>{
+  const button=event.target.closest("button[data-well]");
+  if(!button||button.disabled)return;
+  const well=button.dataset.well,current=orderedWells(),index=current.indexOf(well);
+  if(index>=0)current.splice(index,1);else current.push(well);
+  $("assigned-wells").value=current.join(", ");renderPlateMap();
+});
 function renderSpectrum(){
-  const rows=(plate?.rows||[]).filter(r=>r.plate_id===$("plate-id").value&&r.measurement===$("measurement").value&&Number.isFinite(r.wavelength_nm));
+  const rows=currentPlateRows().filter(r=>Number.isFinite(r.wavelength_nm));
   const well=orderedWells()[0]||rows[0]?.well;
   const selected=rows.filter(r=>r.well===well&&($("repeat-policy").value!=="select"||r.acquisition_id===$("acquisition").value));
   $("spectrum-preview").hidden=!selected.length;
@@ -351,7 +420,61 @@ function renderSpectrum(){
   $("spectrum-caption").textContent=`${well} · ${$("measurement").value} · ${ids.join(", ")} · unaveraged`;
   $("spectrum-plot").replaceChildren(chart(selected.map(r=>({x:r.wavelength_nm,y:r.value,id:`${r.well} / ${r.acquisition_id}`})),[],false,{x:"Emission wavelength (nm)",y:"Raw fluorescence (a.u.)",unit:"nm"}));
 }
-$("plate-file").addEventListener("change",event=>task(async()=>{const file=await readFile(event.target.files[0]);event.target.value="";if(!file)return;const data=await request({action:"import_plate",...file});loadPlate(data.plate);message("Plate loaded.");}));
+$("plate-file").addEventListener("change",event=>{
+  const files=Array.from(event.target.files);event.target.value="";
+  task(async()=>{
+    if(!files.length)return;
+    if(files.length>32)throw new Error("Select no more than 32 plate files.");
+    if(files.reduce((sum,file)=>sum+file.size,0)>20_000_000)throw new Error("The combined plate upload exceeds 20 MB.");
+    const uploads=await Promise.all(files.map(file=>readFile(file)));
+    const data=await request({action:"import_plates",files:uploads});loadPlate(data.plate);
+    message(`${files.length} plate file${files.length===1?"":"s"} loaded.`);
+  });
+});
+$("group-list-file").addEventListener("change",event=>{
+  const file=event.target.files[0];event.target.value="";
+  task(async()=>{
+    if(!file)return;
+    groupList=await readFile(file);
+    $("group-list-source").textContent=file.name;
+    $("group-list-status").textContent="Group list ready. Load the matching plates, then prepare groups.";
+    $("group-list-errors").hidden=true;
+    message("Group list loaded.");
+  });
+});
+$("group-template").addEventListener("click",()=>{
+  download("group name,plate number,well ranges\nGroup 1,P1,A1-B4\nGroup 2,P1,B5-C8\n","group-list-template.csv","text/csv");
+});
+$("prepare-group-list").addEventListener("click",()=>task(async()=>{
+  syncPrepared();
+  const concentrations=$("group-concentrations").value.split(/[\s,;]+/).filter(Boolean).map(Number);
+  if(concentrations.some(value=>!Number.isFinite(value)||value<0))throw new Error("Concentrations must be finite, nonnegative numbers.");
+  const data=await request({action:"prepare_groups",plate,...groupList,concentrations,
+    measurement:$("measurement").value,wavelength_nm:$("wavelength").value===""?null:Number($("wavelength").value),
+    repeat_policy:{mode:$("repeat-policy").value,selected_acquisition_id:$("repeat-policy").value==="select"?$("acquisition").value||null:null,
+      technical_replicates:$("repeat-policy").value==="mean",label:$("replicate-label").value},
+    existing_names:prepared.map(p=>p.settings.group_name),
+    existing_observation_count:prepared.reduce((sum,p)=>sum+p.observations.length,0)});
+  const errors=$("group-list-errors");errors.replaceChildren();
+  for(const [name,reason] of Object.entries(data.failures||{}))errors.append(element("li",`${name}: ${reason}`));
+  for(const warning of data.warnings||[])errors.append(element("li",warning));
+  errors.hidden=!errors.children.length;
+  const count=data.projects.length,failed=Object.keys(data.failures||{}).length;
+  $("group-list-status").textContent=`${count} of ${data.group_count} groups prepared${failed?` · ${failed} need attention`:""}.`;
+  if(count){
+    const index=prepared.length;
+    prepared.push(...data.projects);renderGroups();
+    setProject(structuredClone(prepared[index]),{preparedIndex:index});
+  }
+  message(count?`${count} groups added. Download their individual CSVs below.`:"No groups were added. Check the group list errors.",!count);
+}));
+$("save-group-csvs").addEventListener("click",()=>task(async()=>{
+  syncPrepared();
+  const data=await request({action:"export_group_csvs",projects:prepared});
+  const bytes=Uint8Array.from(atob(data.base64),character=>character.charCodeAt(0));
+  download(bytes,data.filename,data.mime);
+  message([`${data.filenames.length} group CSVs downloaded in one ZIP file.`,...(data.warnings||[])].join(" "));
+}));
 $("example-plate").addEventListener("click",()=>task(async()=>{
   const data=await request({action:"example_plate"});loadPlate(data.plate);
   const setup=data.prepare_group_request;
